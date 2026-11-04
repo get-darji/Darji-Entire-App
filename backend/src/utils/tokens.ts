@@ -6,6 +6,7 @@ export type TokenPayload = {
   sub: string;
   role: Role;
   sid: string;
+  kind?: "admin";
 };
 
 export function signAccessToken(payload: TokenPayload) {

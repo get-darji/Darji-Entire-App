@@ -119,6 +119,26 @@ attachDarjiIdPlugin(userSchema, {
   field: "darjiCustomerId",
   prefix: (doc) => String(doc.role ?? "").toUpperCase() === "CUSTOMER" ? "CUS" : undefined
 });
+
+const adminAccessSchema = new Schema(
+  {
+    _id: stringId,
+    phone: { type: String, trim: true },
+    email: { type: String, trim: true, lowercase: true },
+    name: String,
+    role: { type: String, enum: ["ADMIN", "SUPER_ADMIN"], default: "ADMIN", index: true },
+    accountStatus: { type: String, enum: ["ACTIVE", "BANNED"], default: "ACTIVE", index: true },
+    isOwner: { type: Boolean, default: false, index: true },
+    activeSessionId: { type: String, index: true },
+    refreshTokenHash: String
+  },
+  baseOptions
+);
+adminAccessSchema.index({ phone: 1 }, { unique: true, partialFilterExpression: { phone: { $type: "string" } } });
+adminAccessSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: "string" } } });
+adminAccessSchema.pre("validate", function ensureAdminIdentifier(this: { phone?: string; email?: string }) {
+  if (!this.phone && !this.email) throw new Error("Admin access requires a phone number or email address");
+});
 attachDarjiIdPlugin(userSchema, {
   field: "darjiAdminId",
   prefix: (doc) => ["ADMIN", "SUPER_ADMIN"].includes(String(doc.role ?? "").toUpperCase()) ? "ADM" : undefined
@@ -1201,6 +1221,7 @@ translationCacheSchema.index({ sourceLanguage: 1, targetLanguage: 1, normalizedT
 notificationCampaignSchema.index({ status: 1, scheduledAt: 1 });
 
 export const UserModel = mongoose.model("User", userSchema);
+export const AdminAccessModel = mongoose.model("AdminAccess", adminAccessSchema, "admin_access");
 export const AddressModel = mongoose.model("Address", addressSchema);
 export const ServiceCategoryModel = mongoose.model("ServiceCategory", serviceCategorySchema);
 export const ServiceModel = mongoose.model("Service", serviceSchema);

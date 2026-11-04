@@ -8,6 +8,7 @@ import type { FestivalThemeConfig, FestivalThemeState } from "../../../../shared
 import type { ServiceAreaConfig } from "../../../../shared/src/service-area";
 import type {
   AdminUser,
+  AdminAccess,
   AnalyticsSummary,
   DashboardAnalytics,
   ApiEnvelope,
@@ -809,12 +810,16 @@ export async function deleteAdminAccount(userId: string) {
   return unwrap<{ userId: string; role: string }>(api.delete(`/admin/users/${userId}`));
 }
 
-export async function inviteAdmin(payload: { phone: string }) {
-  return unwrap<AdminUser>(api.post("/users/admin-invite", payload));
+export async function getAdminAccess() {
+  return unwrap<AdminAccess[]>(api.get("/admin/access"));
 }
 
-export async function updateAdminGoogleEmail(userId: string, email: string) {
-  return unwrap<AdminUser>(api.put(`/admin/users/${encodeURIComponent(userId)}/google-email`, { email }));
+export async function createAdminAccess(payload: { phone?: string; email?: string; name?: string }) {
+  return unwrap<AdminAccess>(api.post("/admin/access", payload));
+}
+
+export async function deleteAdminAccess(accessId: string) {
+  return unwrap<{ id: string }>(api.delete(`/admin/access/${encodeURIComponent(accessId)}`));
 }
 
 export async function reviewTailorVerification(payload: {

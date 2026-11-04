@@ -165,8 +165,9 @@ import {
   getCustomerProfile,
   getOrderById,
   getTailoringRequestById,
-  inviteAdmin,
-  updateAdminGoogleEmail,
+  getAdminAccess,
+  createAdminAccess,
+  deleteAdminAccess,
   getAdminGoogleSignInUrl,
   markPaymentPaid,
   moderateUser,
@@ -254,6 +255,7 @@ import { getCustomerFallbackAvatarUrl, getDefaultAvatarUrl } from "@/src/lib/ava
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
 import SupportCommandCenter from "./support-command-center";
 import type {
+  AdminAccess,
   AdminUser,
   AnalyticsSummary,
   DashboardAnalytics,
@@ -859,6 +861,11 @@ export function AdminPortal() {
     queryFn: getUsers,
     enabled: needsSection("dashboard", "orders", "users", "roles", "notifications", "exports") || createOrderOpen
   });
+  const adminAccessQuery = useQuery({
+    queryKey: ["admin", "admin-access"],
+    queryFn: getAdminAccess,
+    enabled: needsSection("roles")
+  });
   const paymentsQuery = useQuery({
     queryKey: ["admin", "payments"],
     queryFn: getPayments,
@@ -1171,6 +1178,7 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "admin-access"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "customer-profile"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "payments"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "financial-ledger"] }),
@@ -1615,20 +1623,20 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
-  const adminInviteMutation = useMutation({
-    mutationFn: inviteAdmin,
+  const adminAccessCreateMutation = useMutation({
+    mutationFn: createAdminAccess,
     onSuccess: async () => {
       toast.success("Full admin access granted");
-      await refreshData();
+      await queryClient.invalidateQueries({ queryKey: ["admin", "admin-access"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
 
-  const adminGoogleEmailMutation = useMutation({
-    mutationFn: ({ userId, email }: { userId: string; email: string }) => updateAdminGoogleEmail(userId, email),
-    onSuccess: async (_admin, variables) => {
-      toast.success(variables.email ? "Approved Google sign-in email saved" : "Google sign-in email removed");
-      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+  const adminAccessDeleteMutation = useMutation({
+    mutationFn: deleteAdminAccess,
+    onSuccess: async () => {
+      toast.success("Admin access removed");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "admin-access"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1955,7 +1963,6 @@ export function AdminPortal() {
 
     return directory.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   })();
-  const adminUsers = users.filter((user) => user.role === "ADMIN" || user.role === "SUPER_ADMIN");
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
     if (!searchTerm) return [];
@@ -3626,13 +3633,12 @@ export function AdminPortal() {
 
         {activeSection === "roles" ? (
           <RolesModule
-            admins={adminUsers}
-            pendingInvite={adminInviteMutation.isPending}
-            pendingDelete={accountDeleteMutation.isPending}
-            pendingGoogleEmail={adminGoogleEmailMutation.isPending}
-            onInvite={(phone) => adminInviteMutation.mutate({ phone })}
-            onDelete={(userId) => accountDeleteMutation.mutate(userId)}
-            onSetGoogleEmail={(userId, email) => adminGoogleEmailMutation.mutate({ userId, email })}
+            admins={adminAccessQuery.data ?? []}
+            loading={adminAccessQuery.isLoading}
+            pendingCreate={adminAccessCreateMutation.isPending}
+            pendingDelete={adminAccessDeleteMutation.isPending}
+            onCreate={(payload) => adminAccessCreateMutation.mutate(payload)}
+            onDelete={(accessId) => adminAccessDeleteMutation.mutate(accessId)}
           />
         ) : null}
 
@@ -6601,117 +6607,114 @@ function SampleWorkModule({
   );
 }
 
-const PROTECTED_ADMIN_PHONE = "9625917902";
-const PROTECTED_OWNER_EMAIL = "amankumarschool7@gmail.com";
-
 function RolesModule({
   admins,
-  pendingInvite,
+  loading,
+  pendingCreate,
   pendingDelete,
-  pendingGoogleEmail,
-  onInvite,
-  onDelete,
-  onSetGoogleEmail
+  onCreate,
+  onDelete
 }: {
-  admins: AdminUser[];
-  pendingInvite: boolean;
+  admins: AdminAccess[];
+  loading: boolean;
+  pendingCreate: boolean;
   pendingDelete: boolean;
-  pendingGoogleEmail: boolean;
-  onInvite: (phone: string) => void;
-  onDelete: (userId: string) => void;
-  onSetGoogleEmail: (userId: string, email: string) => void;
+  onCreate: (payload: { phone?: string; email?: string }) => void;
+  onDelete: (accessId: string) => void;
 }) {
   const [phone, setPhone] = useState("");
-  const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
-  const rows = admins;
-  const emailsJson = JSON.stringify(admins.map((admin) => [admin.id, admin.email ?? ""]));
+  const [email, setEmail] = useState("");
 
-  useEffect(() => {
-    setEmailDrafts(Object.fromEntries(admins.map((admin) => [admin.id, admin.email ?? ""])));
-  }, [emailsJson]);
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submitPhone(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const cleanPhone = phone.replace(/\D/g, "");
-    if (cleanPhone.length < 10) {
+    const cleanPhone = phone.replace(/\D/g, "").slice(-10);
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
       toast.error("Enter a valid admin phone number");
       return;
     }
-    onInvite(cleanPhone);
+    onCreate({ phone: cleanPhone });
     setPhone("");
+  }
+
+  function submitEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      toast.error("Enter a valid Google email address");
+      return;
+    }
+    onCreate({ email: cleanEmail });
+    setEmail("");
   }
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Admin Accounts" description="Phone OTP remains available to invited admin numbers. Google sign-in is allowed only when a Google-verified email is linked to one of these admin accounts." />
-      <Panel>
-        <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={submit}>
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Phone number</label>
+      <SectionIntro title="Admin Accounts" description="Grant access with either a phone number or a verified Google email. These permissions stay independent from customer, tailor, and delivery accounts." />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel>
+          <form className="space-y-4" onSubmit={submitPhone}>
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10"><Phone size={18} /></span>
+              <div><h3 className="font-semibold">Add phone access</h3><p className="mt-1 text-sm text-[var(--muted)]">This number can sign in using the admin OTP flow.</p></div>
+            </div>
             <input
-              className="mt-2 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4 py-3 font-semibold outline-none dark:bg-white/5"
+              aria-label="Admin phone number"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4 py-3 font-semibold outline-none focus:border-[var(--accent)] dark:bg-white/5"
               inputMode="tel"
-              placeholder="Enter admin phone"
+              placeholder="10 digit mobile number"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
             />
-          </div>
-          <ActionButton className="self-end" disabled={pendingInvite} type="submit">
-            <UserRoundPlus size={16} /> Grant Full Access
-          </ActionButton>
-        </form>
-      </Panel>
+            <ActionButton disabled={pendingCreate} type="submit"><UserRoundPlus size={16} /> Add phone access</ActionButton>
+          </form>
+        </Panel>
+        <Panel>
+          <form className="space-y-4" onSubmit={submitEmail}>
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-700 dark:bg-amber-500/10"><Mail size={18} /></span>
+              <div><h3 className="font-semibold">Add Google email access</h3><p className="mt-1 text-sm text-[var(--muted)]">Only this verified Google email can use Google sign-in.</p></div>
+            </div>
+            <input
+              aria-label="Admin Google email"
+              autoComplete="off"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4 py-3 font-semibold outline-none focus:border-[var(--accent)] dark:bg-white/5"
+              placeholder="name@example.com"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <ActionButton disabled={pendingCreate} type="submit"><UserRoundPlus size={16} /> Add email access</ActionButton>
+          </form>
+        </Panel>
+      </div>
       <Panel>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Phone</th><th className="min-w-[320px] px-4 py-3">Approved Google email</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
+              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Admin identity</th><th className="px-4 py-3">Sign-in method</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
             </thead>
             <tbody>
-              {rows.map((admin, adminIndex) => {
-                const protectedOwner = admin.phone === PROTECTED_ADMIN_PHONE;
-                const googleEmail = protectedOwner ? PROTECTED_OWNER_EMAIL : (emailDrafts[admin.id] ?? admin.email ?? "");
+              {admins.map((admin, adminIndex) => {
+                const identity = [admin.phone ? `+91 ${admin.phone}` : "", admin.email ?? ""].filter(Boolean);
+                const methods = [admin.phone ? "Phone OTP" : "", admin.email ? "Google" : ""].filter(Boolean);
+                const protectedOwner = admin.isOwner;
                 return (
                   <tr key={admin.id} className="border-b border-[var(--panel-border)]">
                     <td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{adminIndex + 1}</td>
-                    <td className="px-4 py-3 font-semibold">+91 {admin.phone}</td>
-                    <td className="min-w-[320px] px-4 py-3">
-                      <div className="flex min-w-[300px] gap-2">
-                        <input
-                          aria-label={`Approved Google sign-in email for +91 ${admin.phone}`}
-                          autoComplete="off"
-                          className="min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)] dark:bg-white/5"
-                          disabled={pendingGoogleEmail}
-                          readOnly={protectedOwner}
-                          onChange={(event) => setEmailDrafts((current) => ({ ...current, [admin.id]: event.target.value }))}
-                          placeholder="name@example.com"
-                          type="email"
-                          value={googleEmail}
-                        />
-                        <ActionButton
-                          className="px-3 py-2 text-xs"
-                          disabled={pendingGoogleEmail || googleEmail === (admin.email ?? "")}
-                          onClick={() => {
-                            const email = googleEmail.trim().toLowerCase();
-                            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                              toast.error("Enter a valid Google email address");
-                              return;
-                            }
-                            onSetGoogleEmail(admin.id, email);
-                          }}
-                        >Save</ActionButton>
-                      </div>
-                      <p className="mt-1 text-[11px] text-[var(--muted)]">{protectedOwner ? "Owner sign-in is locked to this verified Google email." : "Google verifies this email at sign-in."}</p>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">{admin.name || (admin.isOwner ? "Darji Owner" : "Admin")}</p>
+                      {identity.map((value) => <p className="mt-1 text-xs text-[var(--muted)]" key={value}>{value}</p>)}
                     </td>
+                    <td className="px-4 py-3"><span className="flex flex-wrap gap-1">{methods.map((method) => <Badge key={method} tone="slate">{method}</Badge>)}</span></td>
                     <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Full access · Owner" : "Full access"}</Badge></td>
                     <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
                     <td className="px-4 py-3">
                       <ActionButton
                         className="px-3 py-2 text-xs"
-                        disabled={pendingDelete || protectedOwner || admin.id === "protected-owner"}
+                        disabled={pendingDelete || protectedOwner}
                         variant="danger"
                         onClick={() => {
-                          if (!protectedOwner && window.confirm(`Remove admin access for +91 ${admin.phone}?`)) onDelete(admin.id);
+                          if (!protectedOwner && window.confirm(`Remove admin access for ${identity.join(" / ")}?`)) onDelete(admin.id);
                         }}
                       >
                         Remove
@@ -6720,8 +6723,10 @@ function RolesModule({
                   </tr>
                 );
               })}
+              {!loading && admins.length === 0 ? <tr><td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={6}>No admin access entries found.</td></tr> : null}
             </tbody>
           </table>
+          {loading ? <LoadingState label="Loading admin access..." /> : null}
         </div>
       </Panel>
     </div>

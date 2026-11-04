@@ -1,15 +1,11 @@
-import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
-import type { Role } from "@darji/shared";
 import { env } from "../env.js";
-import { AdminAuditLogModel, UserModel } from "../models.js";
+import { AdminAccessModel, AdminAuditLogModel } from "../models.js";
 import { AppError } from "../middleware/error.js";
 import { auditRequestContext } from "../middleware/admin-audit.js";
 import type { Request } from "express";
-import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
-import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
-import { releaseOwnerEmailFromOtherAccounts } from "./admin-owner.service.js";
+import { createAdminAccessSession, normalizeAdminEmail, serializeAdminAccess } from "./admin-access.service.js";
 
 const STATE_PURPOSE = "darji-admin-google-sign-in";
 
@@ -77,57 +73,30 @@ export async function completeAdminGoogleSignIn(code: string, state: string, req
   }
 
   const email = profile.email.trim().toLowerCase();
-  let user;
-  if (email === OWNER_ADMIN_EMAIL) {
-    user = await UserModel.findOne({ phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN" });
-    if (user) {
-      await releaseOwnerEmailFromOtherAccounts(user.id);
-      user.email = OWNER_ADMIN_EMAIL;
-    }
-  } else {
-    user = await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
-  }
-  if (!user) throw new AppError(403, "This verified email has not been approved for an admin account");
-  if (user.accountStatus === "BANNED") throw new AppError(403, "This admin account is banned");
-  if (user.accountStatus === "SUSPENDED") {
-    const until = user.suspendedUntil ? new Date(user.suspendedUntil) : null;
-    if (!until || until.getTime() > Date.now()) throw new AppError(403, "This admin account is suspended");
-    user.accountStatus = "ACTIVE";
-    user.suspendedUntil = undefined;
-    user.moderationReason = undefined;
-    user.moderatedAt = new Date();
-  }
-
-  const role = user.role as Role;
-  const sessionId = randomUUID();
-  const accessToken = signAccessToken({ sub: user.id, role, sid: sessionId });
-  const refreshToken = signRefreshToken({ sub: user.id, role, sid: sessionId });
-  user.set({
-    [`activeSessionIds.${role}`]: sessionId,
-    [`refreshTokenHashes.${role}`]: await bcrypt.hash(refreshToken, 10)
-  });
-  await user.save();
+  const admin = await AdminAccessModel.findOne({ email: normalizeAdminEmail(email) });
+  if (!admin) throw new AppError(403, "This verified email has not been approved in Admin Accounts");
+  const session = await createAdminAccessSession(admin);
 
   await AdminAuditLogModel.create({
-    actorId: user.id,
-    actorRole: role,
-    actorName: user.name,
-    actorPhone: user.phone,
+    actorId: admin.id,
+    actorRole: session.role,
+    actorName: admin.name,
+    actorPhone: admin.phone,
     category: "ACCESS",
     action: "Signed in to admin panel with Google",
     method: "POST",
     path: "/api/auth/admin/google/exchange",
     statusCode: 200,
     entityType: "ADMIN_SESSION",
-    entityId: sessionId,
+    entityId: session.sessionId,
     summary: "Signed in to admin panel with Google",
     ...auditRequestContext(req),
     metadata: { loginMethod: "GOOGLE", email }
   }).catch(() => undefined);
 
   return {
-    user: { id: user.id, phone: user.phone, email, name: user.name, role },
-    accessToken,
-    refreshToken
+    user: serializeAdminAccess(admin),
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken
   };
 }

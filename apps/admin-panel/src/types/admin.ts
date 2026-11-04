@@ -1012,6 +1012,18 @@ export type AdminUser = BasicUser & {
   archivedCustomer?: boolean;
 };
 
+export type AdminAccess = {
+  id: string;
+  phone?: string;
+  email?: string;
+  name?: string;
+  role: "ADMIN" | "SUPER_ADMIN";
+  accountStatus: "ACTIVE" | "BANNED";
+  isOwner: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CustomerProfileOrder = {
   id: string;
   publicId: string;

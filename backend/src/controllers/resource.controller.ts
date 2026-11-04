@@ -2,7 +2,6 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import archiver from "archiver";
 import PDFDocument from "pdfkit";
-import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
 import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
   addressSchema,
@@ -58,7 +57,6 @@ import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { auditRequestContext } from "../middleware/admin-audit.js";
-import { releaseOwnerEmailFromOtherAccounts } from "../services/admin-owner.service.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
 import { pushRuntimeStatus, saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
@@ -500,10 +498,6 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
 async function deleteAccountByUserId(userId: string) {
   const user = await UserModel.findById(userId).select("role phone");
   if (!user) throw new AppError(404, "User not found");
-  if (user.phone === PROTECTED_ADMIN_PHONE) throw new AppError(403, "Owner admin access cannot be removed");
-  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
-    throw new AppError(403, "Admin accounts cannot be deleted here");
-  }
 
   await Promise.all([
     UserModel.findByIdAndDelete(userId),
@@ -1343,10 +1337,6 @@ export async function moderateUserController(req: Request, res: Response) {
 
   const existingUser = await UserModel.findById(userId).select("role phone");
   if (!existingUser) throw new AppError(404, "User not found");
-  if (existingUser.phone === PROTECTED_ADMIN_PHONE) throw new AppError(403, "Owner admin access cannot be suspended or banned");
-  if (existingUser.role === "ADMIN" || existingUser.role === "SUPER_ADMIN") {
-    throw new AppError(403, "Admin accounts cannot be moderated here");
-  }
 
   const suspendedUntil = input.action === "SUSPENDED" && input.suspendedUntil ? new Date(input.suspendedUntil) : null;
   if (input.action === "SUSPENDED" && (!suspendedUntil || Number.isNaN(suspendedUntil.getTime()) || suspendedUntil.getTime() <= Date.now())) {
@@ -1374,11 +1364,6 @@ export async function deleteAdminAccountController(req: Request, res: Response) 
   if (req.user?.id === userId) {
     throw new AppError(400, "You cannot delete your own admin account");
   }
-  const target = await UserModel.findById(userId).select("phone role");
-  if (target?.phone === PROTECTED_ADMIN_PHONE) {
-    throw new AppError(400, "Owner admin access cannot be removed");
-  }
-
   const deleted = await deleteAccountByUserId(userId);
   res.json({ data: deleted });
 }
@@ -1406,59 +1391,6 @@ export async function updateOperationalAlertController(req: Request, res: Respon
   const alert = await OperationalAlertModel.findByIdAndUpdate(String(req.params.id), { $set: update }, { returnDocument: "after" });
   if (!alert) throw new AppError(404, "Operational alert not found");
   res.json({ data: alert });
-}
-
-export async function inviteAdminController(req: Request, res: Response) {
-  const phone = String(req.body.phone ?? "").replace(/\D/g, "").slice(-10);
-  if (!/^[6-9]\d{9}$/.test(phone)) throw new AppError(400, "Enter a valid 10 digit Indian mobile number");
-  
-  let user = await UserModel.findOne({ phone });
-  if (user) {
-    user.role = adminInviteRole(phone, user.role);
-    user.accountStatus = "ACTIVE";
-    user.suspendedUntil = undefined;
-    user.moderationReason = undefined;
-    await user.save();
-  } else {
-    user = await UserModel.create({
-      phone,
-      role: adminInviteRole(phone)
-    });
-  }
-  
-  const [result] = await attachProfilesToUsers([user.toJSON()]);
-  res.status(201).json({ data: result, message: "Full admin access granted" });
-}
-
-export async function updateAdminGoogleEmailController(req: Request, res: Response) {
-  const userId = String(req.params.id ?? "").trim();
-  const input = z.object({ email: z.string().trim().email().max(254).or(z.literal("")) }).strict().parse(req.body);
-  const email = input.email.toLowerCase();
-  const actor = await UserModel.findById(req.user!.id).select("phone role").lean();
-  if (!actor || actor.phone !== PROTECTED_ADMIN_PHONE || actor.role !== "SUPER_ADMIN") {
-    throw new AppError(403, "Only the protected owner account can manage approved Google sign-in emails");
-  }
-  const admin = await UserModel.findOne({ _id: userId, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
-  if (!admin) throw new AppError(404, "Admin account not found");
-  if (admin.phone === PROTECTED_ADMIN_PHONE && email !== OWNER_ADMIN_EMAIL) {
-    throw new AppError(409, "The owner account is locked to its verified owner email");
-  }
-  if (email === OWNER_ADMIN_EMAIL && admin.phone !== PROTECTED_ADMIN_PHONE) {
-    throw new AppError(409, "The owner email can only be linked to the protected owner account");
-  }
-  if (email) {
-    if (email === OWNER_ADMIN_EMAIL && admin.phone === PROTECTED_ADMIN_PHONE) {
-      await releaseOwnerEmailFromOtherAccounts(admin.id);
-    } else {
-      const existing = await UserModel.findOne({ email, _id: { $ne: userId } }).select("_id").lean();
-      if (existing) throw new AppError(409, "This email is already attached to another Darji account");
-    }
-    admin.email = email;
-  } else {
-    admin.email = undefined;
-  }
-  await admin.save();
-  res.json({ data: admin });
 }
 
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {

@@ -1,15 +1,15 @@
 import bcrypt from "bcryptjs";
-import { nonAdminLoginUpdate } from "../utils/admin-access.js";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { env } from "../env.js";
 import { requestOtpSchema, verifyOtpSchema } from "@darji/shared";
-import { AdminAuditLogModel, DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
+import { AdminAccessModel, AdminAuditLogModel, DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
 import { z } from "zod";
 import { auditRequestContext } from "../middleware/admin-audit.js";
+import { assertAdminAccessActive, createAdminAccessSession, normalizeAdminPhone, serializeAdminAccess } from "../services/admin-access.service.js";
 
 const adminRefreshCookie = "darji_admin_refresh";
 
@@ -65,32 +65,23 @@ async function resetAutoVerifiedTailorProfile(userId: string) {
 
 async function assertAdminPhoneAllowed(phone: string, role?: string) {
   if (role !== "ADMIN" && role !== "SUPER_ADMIN") return;
-  const approvedAdmin = await UserModel.findOne({
-    phone,
-    role: { $in: ["ADMIN", "SUPER_ADMIN"] },
-    accountStatus: { $ne: "BANNED" }
-  }).select("_id");
+  const approvedAdmin = await AdminAccessModel.findOne({ phone: normalizeAdminPhone(phone), accountStatus: "ACTIVE" }).select("_id");
   if (!approvedAdmin) {
     throw new AppError(403, "This phone number is not allowed to access the admin portal");
   }
 }
 
 async function findOrCreateNonAdminUser(phone: string, role: string) {
-  const admin = await UserModel.findOne({ phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
-  if (admin) return admin;
-
   try {
     const user = await UserModel.findOneAndUpdate(
-      { phone, role: { $nin: ["ADMIN", "SUPER_ADMIN"] } },
-      nonAdminLoginUpdate(phone, role),
+      { phone },
+      { $set: { role }, $setOnInsert: { phone } },
       { upsert: true, returnDocument: "after" }
     );
     if (user) return user;
   } catch (error) {
     const isDuplicateKey = typeof error === "object" && error !== null && "code" in error && error.code === 11000;
     if (!isDuplicateKey) throw error;
-    // An admin invite can race this non-admin login. Re-read the account instead
-    // of retrying an update that could downgrade the newly invited admin.
     const racedAccount = await UserModel.findOne({ phone });
     if (racedAccount) return racedAccount;
     throw error;
@@ -180,11 +171,22 @@ export async function verifyOtpController(req: Request, res: Response) {
   await verifyOtp(input.phone, input.otp);
 
   const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
-  const user = requestedAdmin
-    ? await UserModel.findOne({ phone: input.phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } })
-    : await findOrCreateNonAdminUser(input.phone, input.role);
+  if (requestedAdmin) {
+    const admin = await AdminAccessModel.findOne({ phone: normalizeAdminPhone(input.phone) });
+    assertAdminAccessActive(admin);
+    const session = await createAdminAccessSession(admin!);
+    setAdminRefreshCookie(res, session.refreshToken);
+    await AdminAuditLogModel.create({
+      actorId: admin!.id, actorRole: session.role, actorName: admin!.name, actorPhone: admin!.phone,
+      category: "ACCESS", action: "Signed in to admin panel", method: "POST", path: req.originalUrl.split("?")[0], statusCode: 200,
+      entityType: "ADMIN_SESSION", entityId: session.sessionId, summary: "Signed in to admin panel", ...auditRequestContext(req), metadata: { loginMethod: "OTP" }
+    }).catch(() => undefined);
+    return res.json({ data: { user: serializeAdminAccess(admin), accessToken: session.accessToken } });
+  }
+
+  const user = await findOrCreateNonAdminUser(input.phone, input.role);
   if (!user) throw new AppError(403, "This phone number is not allowed to access the admin portal");
-  const role = requestedAdmin ? (user.role as "ADMIN" | "SUPER_ADMIN") : input.role;
+  const role = input.role;
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
@@ -220,17 +222,7 @@ export async function verifyOtpController(req: Request, res: Response) {
     [`refreshTokenHashes.${role}`]: await bcrypt.hash(refreshToken, 10)
   });
 
-  if (role === "ADMIN" || role === "SUPER_ADMIN") setAdminRefreshCookie(res, refreshToken);
-
-  if (role === "ADMIN" || role === "SUPER_ADMIN") {
-    await AdminAuditLogModel.create({
-      actorId: user.id, actorRole: role, actorName: user.name, actorPhone: user.phone,
-      category: "ACCESS", action: "Signed in to admin panel", method: "POST", path: req.originalUrl.split("?")[0], statusCode: 200,
-      entityType: "ADMIN_SESSION", entityId: sessionId, summary: "Signed in to admin panel", ...auditRequestContext(req), metadata: { loginMethod: "OTP" }
-    }).catch(() => undefined);
-  }
-
-  res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken: requestedAdmin ? undefined : refreshToken } });
+  res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken } });
 }
 
 export async function refreshController(req: Request, res: Response) {
@@ -240,6 +232,18 @@ export async function refreshController(req: Request, res: Response) {
   }
 
   const payload = verifyRefreshToken(refreshToken);
+  if (payload.role === "ADMIN" || payload.role === "SUPER_ADMIN") {
+    const admin = await AdminAccessModel.findById(payload.sub);
+    assertAdminAccessActive(admin);
+    if (!admin!.activeSessionId || admin!.activeSessionId !== payload.sid) {
+      throw new AppError(401, "Your account has been signed in on another device.");
+    }
+    if (!admin!.refreshTokenHash || !(await bcrypt.compare(refreshToken, admin!.refreshTokenHash))) {
+      throw new AppError(401, "Invalid refresh token");
+    }
+    setAdminRefreshCookie(res, refreshToken);
+    return res.json({ data: { accessToken: signAccessToken({ sub: admin!.id, role: admin!.role as "ADMIN" | "SUPER_ADMIN", sid: payload.sid, kind: "admin" }) } });
+  }
   const user = await UserModel.findById(payload.sub);
   if (!user) {
     throw new AppError(401, "Invalid refresh token");
@@ -255,18 +259,26 @@ export async function refreshController(req: Request, res: Response) {
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
-  if (payload.role === "ADMIN" || payload.role === "SUPER_ADMIN") setAdminRefreshCookie(res, refreshToken);
-
   res.json({
     data: {
       accessToken: signAccessToken({ sub: user.id, role: payload.role, sid: payload.sid }),
-      refreshToken: payload.role === "ADMIN" || payload.role === "SUPER_ADMIN" ? undefined : refreshToken
+      refreshToken
     }
   });
 }
 
 export async function logoutController(req: Request, res: Response) {
   const adminSession = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  if (adminSession && req.user!.adminAccessId) {
+    await AdminAccessModel.findByIdAndUpdate(req.user!.adminAccessId, { $unset: { activeSessionId: "", refreshTokenHash: "" } });
+    clearAdminRefreshCookie(res);
+    await AdminAuditLogModel.create({
+      actorId: req.user!.id, actorRole: req.user!.role, actorName: req.user!.name, actorPhone: req.user!.phone,
+      category: "ACCESS", action: "Signed out of admin panel", method: "POST", path: req.originalUrl.split("?")[0], statusCode: 200,
+      entityType: "ADMIN_SESSION", summary: "Signed out of admin panel", ...auditRequestContext(req), metadata: {}
+    }).catch(() => undefined);
+    return res.json({ data: { ok: true } });
+  }
   await UserModel.findByIdAndUpdate(req.user!.id, {
     $unset: {
       [`activeSessionIds.${req.user!.role}`]: "",
@@ -292,6 +304,11 @@ export async function logoutController(req: Request, res: Response) {
 }
 
 export async function meController(req: Request, res: Response) {
+  if ((req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN") && req.user!.adminAccessId) {
+    const admin = await AdminAccessModel.findById(req.user!.adminAccessId);
+    assertAdminAccessActive(admin);
+    return res.json({ data: serializeAdminAccess(admin) });
+  }
   const walletUserType = req.user!.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : req.user!.role === "TAILOR" ? "TAILOR" : undefined;
   const [user, wallet] = await Promise.all([
     UserModel.findById(req.user!.id),

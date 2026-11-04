@@ -5,6 +5,7 @@ import { otpDeliveryCallbackController, otpDeliveryCallbackSetupController, otpD
 import { createAdminLiveAlertEmailTestController, getAdminLiveAlertEmailSettingsController, updateAdminLiveAlertEmailSettingsController } from "../controllers/admin-alert-email.controller.js";
 import { completeAdminLiveAlertGmailOAuthController, disconnectAdminLiveAlertGmailController, getAdminLiveAlertGmailStatusController, startAdminLiveAlertGmailOAuthController } from "../controllers/admin-alert-email-gmail.controller.js";
 import { completeAdminGoogleSignInController, startAdminGoogleSignInController } from "../controllers/admin-google-auth.controller.js";
+import { createAdminAccessController, deleteAdminAccessController, listAdminAccessController } from "../controllers/admin-access.controller.js";
 import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
@@ -52,7 +53,6 @@ import {
   listAccountChangeRequestsController,
   approveAccountChangeRequestController,
   rejectAccountChangeRequestController,
-  inviteAdminController,
   getTailorTutorialMediaController,
   getSupportStatsController,
   addSupportTicketMessageController,
@@ -128,8 +128,7 @@ import {
   createServiceAreaInterestController,
   listServiceAreaInterestsController,
   serviceAreaConfigController,
-  updateServiceAreaConfigController,
-  updateAdminGoogleEmailController
+  updateServiceAreaConfigController
 } from "../controllers/resource.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -417,8 +416,9 @@ router.patch("/admin/orders/:id/metadata", requireAuth, requireRole("ADMIN", "SU
 router.get("/admin/system-health", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), systemHealthController);
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
 router.get("/admin/customers/:id/profile", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getAdminCustomerProfileController);
-router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), inviteAdminController);
-router.put("/admin/users/:id/google-email", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminGoogleEmailController);
+router.get("/admin/access", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminAccessController);
+router.post("/admin/access", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), createAdminAccessController);
+router.delete("/admin/access/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccessController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);

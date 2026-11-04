@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from "node:http";
 import { Server, type Socket } from "socket.io";
 import { isAppUnderMaintenance, type MaintenanceApp, type Role, type PlatformStatus } from "@darji/shared";
-import { DeliveryPartnerModel, DeliveryRequestModel, TailorModel, UserModel, SupportTicketModel, BugReportModel, AccountChangeRequestModel } from "../models.js";
+import { AdminAccessModel, DeliveryPartnerModel, DeliveryRequestModel, TailorModel, UserModel, SupportTicketModel, BugReportModel, AccountChangeRequestModel } from "../models.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 import { getPlatformStatus } from "./platform-status.service.js";
 
@@ -54,6 +54,14 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   if (!rawToken) throw new Error("Authentication required");
 
   const payload = verifyAccessToken(String(rawToken));
+  if (payload.role === "ADMIN" || payload.role === "SUPER_ADMIN") {
+    const admin = await AdminAccessModel.findById(payload.sub).select("role accountStatus activeSessionId");
+    if (!admin || admin.accountStatus !== "ACTIVE") throw new Error("Invalid session");
+    if (!payload.sid || !admin.activeSessionId || payload.sid !== admin.activeSessionId) {
+      throw new Error("Your account has been signed in on another device.");
+    }
+    return { id: admin.id, role: admin.role as Role };
+  }
   const user = await UserModel.findById(payload.sub).select("role activeSessionId activeSessionIds");
   if (!user) throw new Error("Invalid session");
   const activeSessionId = (user.activeSessionIds as Record<string, string> | undefined)?.[payload.role] ?? user.activeSessionId;
@@ -65,10 +73,8 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
     : rawClient === "delivery-app" ? "DELIVERY_APP"
       : rawClient === "customer-web" ? "CUSTOMER_WEB"
         : "CUSTOMER_APP";
-  if (payload.role !== "ADMIN" && payload.role !== "SUPER_ADMIN") {
-    const platformStatus = await getPlatformStatus();
-    if (isAppUnderMaintenance(platformStatus, maintenanceApp)) throw new Error(platformStatus.title);
-  }
+  const platformStatus = await getPlatformStatus();
+  if (isAppUnderMaintenance(platformStatus, maintenanceApp)) throw new Error(platformStatus.title);
 
   const [tailor, partner] = await Promise.all([
     payload.role === "TAILOR" ? TailorModel.findOne({ userId: user.id }).select("_id") : null,

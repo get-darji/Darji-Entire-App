@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { Role } from "@darji/shared";
-import { UserModel } from "../models.js";
+import { AdminAccessModel, UserModel } from "../models.js";
 import { AppError } from "./error.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 import { getPlatformStatus } from "../services/platform-status.service.js";
@@ -12,6 +12,10 @@ declare global {
       user?: {
         id: string;
         role: Role;
+        adminAccessId?: string;
+        name?: string;
+        phone?: string;
+        email?: string;
       };
     }
   }
@@ -27,6 +31,27 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
   try {
     const payload = verifyAccessToken(token);
+    const tokenRequestsAdmin = payload.role === "ADMIN" || payload.role === "SUPER_ADMIN";
+    if (tokenRequestsAdmin) {
+      const admin = await AdminAccessModel.findById(payload.sub).lean();
+      if (admin) {
+        if (!payload.sid || !admin.activeSessionId || payload.sid !== admin.activeSessionId) {
+          return next(new AppError(401, "Your account has been signed in on another device."));
+        }
+        if (admin.accountStatus !== "ACTIVE") return next(new AppError(403, "Admin access has been removed"));
+        req.user = {
+          id: String(admin._id),
+          adminAccessId: String(admin._id),
+          role: admin.role as Role,
+          name: admin.name ?? undefined,
+          phone: admin.phone ?? undefined,
+          email: admin.email ?? undefined
+        };
+        return next();
+      }
+      return next(new AppError(401, "Invalid admin session"));
+    }
+
     const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason activeSessionId activeSessionIds").lean();
     if (!user) {
       return next(new AppError(401, "Invalid session"));
@@ -60,7 +85,6 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
         );
       }
     }
-    const tokenRequestsAdmin = payload.role === "ADMIN" || payload.role === "SUPER_ADMIN";
     const accountAllowsAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
     if (tokenRequestsAdmin && !accountAllowsAdmin) {
       return next(new AppError(403, "Admin access has been removed for this phone number"));
@@ -68,7 +92,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     // Downstream admin controllers consistently treat both admin account tiers as
     // the administrative actor. Keep that normalized role while authorization
     // still checks the persisted account tier above.
-    const effectiveRole: Role = tokenRequestsAdmin && accountAllowsAdmin ? "ADMIN" : payload.role as Role;
+    const effectiveRole: Role = tokenRequestsAdmin && accountAllowsAdmin ? user.role as Role : payload.role as Role;
     req.user = { id: String(user._id), role: effectiveRole };
     const isAdmin = effectiveRole === "ADMIN";
     const isProfileBootstrap = req.method === "GET" && req.path === "/auth/me";

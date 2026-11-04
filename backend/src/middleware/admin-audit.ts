@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { AdminAuditLogModel, UserModel } from "../models.js";
+import { AdminAuditLogModel } from "../models.js";
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -51,12 +51,11 @@ export function auditAdminMutation(req: Request, res: Response, next: NextFuncti
     if (!actor || !["ADMIN", "SUPER_ADMIN"].includes(actor.role) || res.statusCode >= 400) return;
     const path = req.originalUrl.split("?")[0];
     const { entityType, entityId } = entityFromPath(path);
-    void UserModel.findById(actor.id).select("name phone").lean().then((user) =>
-      AdminAuditLogModel.create({
+    void AdminAuditLogModel.create({
         actorId: actor.id,
         actorRole: actor.role,
-        actorName: user?.name,
-        actorPhone: user?.phone,
+        actorName: actor.name,
+        actorPhone: actor.phone,
         category: classify(path),
         action: actionSummary(req.method, path),
         ...auditRequestContext(req),
@@ -67,8 +66,7 @@ export function auditAdminMutation(req: Request, res: Response, next: NextFuncti
         entityId,
         summary: actionSummary(req.method, path),
         metadata: { params: req.params, query: req.query }
-      })
-    ).catch((error) => console.error("Failed to write admin audit log", error));
+      }).catch((error) => console.error("Failed to write admin audit log", error));
   });
   next();
 }

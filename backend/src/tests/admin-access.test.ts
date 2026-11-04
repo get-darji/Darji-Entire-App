@@ -1,20 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PROTECTED_ADMIN_PHONE, adminInviteRole, nonAdminLoginUpdate } from "../utils/admin-access.js";
+import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
+import { normalizeAdminEmail, normalizeAdminPhone } from "../services/admin-access.service.js";
 
-test("mobile logins cannot demote the owner or self-grant admin on insert", () => {
-  for (const role of ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"]) {
-    const update = nonAdminLoginUpdate(PROTECTED_ADMIN_PHONE, role);
-    assert.equal(update.$set, undefined);
-    assert.equal(update.$setOnInsert.role, role);
-  }
-  assert.deepEqual(nonAdminLoginUpdate("9876543210", "CUSTOMER"), {
-    $set: { role: "CUSTOMER" }, $setOnInsert: { phone: "9876543210" }
-  });
+test("owner admin identifiers remain normalized and locked", () => {
+  assert.equal(normalizeAdminPhone(`+91 ${PROTECTED_ADMIN_PHONE}`), PROTECTED_ADMIN_PHONE);
+  assert.equal(normalizeAdminEmail(OWNER_ADMIN_EMAIL.toUpperCase()), OWNER_ADMIN_EMAIL);
 });
 
-test("invites preserve owner and existing super-admin roles", () => {
-  assert.equal(adminInviteRole(PROTECTED_ADMIN_PHONE, "CUSTOMER"), "SUPER_ADMIN");
-  assert.equal(adminInviteRole("9876543210", "SUPER_ADMIN"), "SUPER_ADMIN");
-  assert.equal(adminInviteRole("9876543210"), "ADMIN");
+test("admin identifiers can be independently normalized", () => {
+  assert.equal(normalizeAdminPhone("88823 65282"), "8882365282");
+  assert.equal(normalizeAdminPhone("not-a-phone"), "");
+  assert.equal(normalizeAdminEmail(" Admin@Example.com "), "admin@example.com");
 });
