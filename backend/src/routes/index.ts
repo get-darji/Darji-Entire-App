@@ -4,6 +4,7 @@ import { adminMeasurementVisitDetailController, tailorActivityController } from 
 import { otpDeliveryCallbackController, otpDeliveryCallbackSetupController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
 import { createAdminLiveAlertEmailTestController, getAdminLiveAlertEmailSettingsController, updateAdminLiveAlertEmailSettingsController } from "../controllers/admin-alert-email.controller.js";
 import { completeAdminLiveAlertGmailOAuthController, disconnectAdminLiveAlertGmailController, getAdminLiveAlertGmailStatusController, startAdminLiveAlertGmailOAuthController } from "../controllers/admin-alert-email-gmail.controller.js";
+import { completeAdminGoogleSignInController, startAdminGoogleSignInController } from "../controllers/admin-google-auth.controller.js";
 import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
@@ -127,7 +128,8 @@ import {
   createServiceAreaInterestController,
   listServiceAreaInterestsController,
   serviceAreaConfigController,
-  updateServiceAreaConfigController
+  updateServiceAreaConfigController,
+  updateAdminGoogleEmailController
 } from "../controllers/resource.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -219,6 +221,8 @@ router.post(
 );
 router.post("/auth/request-otp", rateLimit({ keyPrefix: "auth-otp-request", windowMs: 10 * 60 * 1000, max: 10 }), requestOtpController);
 router.post("/auth/verify-otp", rateLimit({ keyPrefix: "auth-otp-verify", windowMs: 10 * 60 * 1000, max: 20 }), verifyOtpController);
+router.get("/auth/admin/google/start", rateLimit({ keyPrefix: "admin-google-start", windowMs: 10 * 60 * 1000, max: 20 }), startAdminGoogleSignInController);
+router.post("/auth/admin/google/exchange", rateLimit({ keyPrefix: "admin-google-exchange", windowMs: 10 * 60 * 1000, max: 10 }), completeAdminGoogleSignInController);
 router.post("/auth/refresh", refreshController);
 router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);
@@ -414,6 +418,7 @@ router.get("/admin/system-health", requireAuth, requireRole("ADMIN", "SUPER_ADMI
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
 router.get("/admin/customers/:id/profile", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getAdminCustomerProfileController);
 router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), inviteAdminController);
+router.put("/admin/users/:id/google-email", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminGoogleEmailController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);

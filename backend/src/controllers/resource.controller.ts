@@ -1429,6 +1429,23 @@ export async function inviteAdminController(req: Request, res: Response) {
   res.status(201).json({ data: result, message: "Full admin access granted" });
 }
 
+export async function updateAdminGoogleEmailController(req: Request, res: Response) {
+  const userId = String(req.params.id ?? "").trim();
+  const input = z.object({ email: z.string().trim().email().max(254).or(z.literal("")) }).strict().parse(req.body);
+  const email = input.email.toLowerCase();
+  const admin = await UserModel.findOne({ _id: userId, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  if (!admin) throw new AppError(404, "Admin account not found");
+  if (email) {
+    const existing = await UserModel.findOne({ email, _id: { $ne: userId } }).select("_id").lean();
+    if (existing) throw new AppError(409, "This email is already attached to another Darji account");
+    admin.email = email;
+  } else {
+    admin.email = undefined;
+  }
+  await admin.save();
+  res.json({ data: admin });
+}
+
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery profile not found");

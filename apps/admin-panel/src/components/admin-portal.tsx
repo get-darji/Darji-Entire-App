@@ -166,6 +166,8 @@ import {
   getOrderById,
   getTailoringRequestById,
   inviteAdmin,
+  updateAdminGoogleEmail,
+  getAdminGoogleSignInUrl,
   markPaymentPaid,
   moderateUser,
   requestOtp,
@@ -658,6 +660,24 @@ export function AdminPortal() {
     url.searchParams.set("section", activeSection);
     window.history.pushState({ ...window.history.state, darjiAdminSection: activeSection }, "", `${url.pathname}${url.search}${url.hash}`);
   }, [activeSection, hydrated]);
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("google_auth");
+    if (!result) return;
+    const accessToken = new URLSearchParams(url.hash.replace(/^#/, "")).get("accessToken");
+    if (result === "connected" && accessToken) {
+      setSession({ accessToken });
+      toast.success("Google sign-in successful");
+    } else if (result === "denied") {
+      toast.error("Google sign-in was cancelled");
+    } else {
+      toast.error("Google sign-in could not be completed. Check that your verified email is approved in Admin Accounts.");
+    }
+    url.searchParams.delete("google_auth");
+    url.hash = "";
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [hydrated, setSession]);
   useEffect(() => {
     if (!hydrated || sessionRestoreDone) return;
     if (token) {
@@ -1604,6 +1624,15 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const adminGoogleEmailMutation = useMutation({
+    mutationFn: ({ userId, email }: { userId: string; email: string }) => updateAdminGoogleEmail(userId, email),
+    onSuccess: async (_admin, variables) => {
+      toast.success(variables.email ? "Approved Google sign-in email saved" : "Google sign-in email removed");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const bugReportUpdateMutation = useMutation({
     mutationFn: updateBugReport,
     onSuccess: async () => {
@@ -1738,6 +1767,13 @@ export function AdminPortal() {
       <LoginPanel
         isRequesting={requestOtpMutation.isPending}
         isVerifying={verifyOtpMutation.isPending}
+        onGoogleLogin={async () => {
+          try {
+            window.location.assign(await getAdminGoogleSignInUrl());
+          } catch (error) {
+            toast.error(extractError(error));
+          }
+        }}
         onRequestOtp={async (phone) => {
           try {
             await requestOtpMutation.mutateAsync(phone);
@@ -3583,8 +3619,10 @@ export function AdminPortal() {
             admins={adminUsers}
             pendingInvite={adminInviteMutation.isPending}
             pendingDelete={accountDeleteMutation.isPending}
+            pendingGoogleEmail={adminGoogleEmailMutation.isPending}
             onInvite={(phone) => adminInviteMutation.mutate({ phone })}
             onDelete={(userId) => accountDeleteMutation.mutate(userId)}
+            onSetGoogleEmail={(userId, email) => adminGoogleEmailMutation.mutate({ userId, email })}
           />
         ) : null}
 
@@ -4179,17 +4217,21 @@ export function AdminPortal() {
 function LoginPanel({
   isRequesting,
   isVerifying,
+  onGoogleLogin,
   onRequestOtp,
   onVerifyOtp
 }: {
   isRequesting: boolean;
   isVerifying: boolean;
+  onGoogleLogin: () => Promise<void>;
   onRequestOtp: (phone: string) => Promise<{ success: boolean }>;
   onVerifyOtp: (phone: string, otp: string) => void;
 }) {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [requested, setRequested] = useState(false);
+  const [phoneLoginOpen, setPhoneLoginOpen] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
   const cleanPhoneInput = (value: string) => value.replace(/\D/g, "").slice(0, 10);
 
   return (
@@ -4229,7 +4271,7 @@ function LoginPanel({
               <LoginFeature
                 icon={ShieldCheck}
                 title="Secure & Reliable"
-                description="Phone-number OTP access with secure role-based entry into the Darji dashboard."
+                description="Approved Google sign-in with phone OTP access as a fallback for invited admin numbers."
               />
               <LoginFeature
                 icon={Users}
@@ -4259,71 +4301,67 @@ function LoginPanel({
               </div>
 
               <div className="mt-7 space-y-5 sm:mt-9 sm:space-y-6 xl:mt-10">
-                <Field label="Phone Number">
-                  <div className="flex h-[58px] items-center gap-4 rounded-[18px] border border-[#e7e3d8] bg-white px-5 shadow-[inset_0_0_0_1px_rgba(255,248,232,0.5)]">
-                    <Users size={20} className="text-[#8f8f95]" />
-                    <input
-                      className="w-full bg-transparent outline-none placeholder:text-[#9a9aa3]"
-                      inputMode="numeric"
-                      maxLength={10}
-                      pattern="[0-9]*"
-                      value={phone}
-                      onChange={(event) => setPhone(cleanPhoneInput(event.target.value))}
-                      placeholder="Enter your phone number"
-                    />
-                  </div>
-                </Field>
-
-                {requested ? (
-                  <Field label="OTP">
-                    <div className="flex h-[58px] items-center gap-4 rounded-[18px] border border-[#e7e3d8] bg-white px-5 shadow-[inset_0_0_0_1px_rgba(255,248,232,0.5)]">
-                      <ShieldCheck size={20} className="text-[#8f8f95]" />
-                      <input
-                        className="w-full bg-transparent text-[1.05rem] font-medium tracking-[0.28em] outline-none placeholder:text-[#9a9aa3]"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={otp}
-                        onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                        placeholder="Enter OTP"
-                      />
-                    </div>
-                  </Field>
-                ) : null}
-
-                <div className="flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <span className="text-[#6a6460]">Secure admin access</span>
-                  <a className="font-medium text-[#d88500] underline-offset-4 hover:underline" href="mailto:support@darji.app?subject=Admin%20portal%20login%20help">
-                    Need help?
-                  </a>
-                </div>
-
-
-
-                <ActionButton
-                  className="h-[58px] w-full justify-center rounded-[18px] text-[1.05rem] font-semibold shadow-[0_18px_32px_rgba(246,163,19,0.22)]"
-                  disabled={isRequesting || isVerifying}
+                <button
+                  className="group flex h-[62px] w-full items-center justify-center gap-3 rounded-[18px] border border-[#eadfc8] bg-white px-5 text-[1.02rem] font-semibold text-[#292929] shadow-[0_12px_26px_rgba(90,66,28,0.09)] transition hover:-translate-y-0.5 hover:border-[#e3c27e] hover:shadow-[0_16px_32px_rgba(90,66,28,0.14)] disabled:cursor-wait disabled:opacity-70"
+                  disabled={googlePending || isRequesting || isVerifying}
                   onClick={async () => {
-                    if (!requested) {
-                      if (!/^[6-9]\d{9}$/.test(phone.trim())) {
-                        toast.error("Enter a valid 10 digit mobile number");
-                        return;
-                      }
-                      const result = await onRequestOtp(phone.trim());
-                      if (result.success) {
-                        setRequested(true);
-                      }
-                      return;
-                    }
-                    if (!/^\d{6}$/.test(otp.trim())) {
-                      toast.error("Enter the 6 digit OTP");
-                      return;
-                    }
-                    onVerifyOtp(phone.trim(), otp.trim());
+                    setGooglePending(true);
+                    try { await onGoogleLogin(); } finally { setGooglePending(false); }
                   }}
+                  type="button"
                 >
-                  {isRequesting || isVerifying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                  {requested ? "Verify and Open Dashboard" : "Login to Dashboard"}
-                </ActionButton>
+                  {googlePending ? <LoaderCircle className="h-5 w-5 animate-spin text-[#d88500]" /> : <GoogleMark />}
+                  <span>{googlePending ? "Opening secure sign-in..." : "Continue with Google"}</span>
+                  {!googlePending ? <ChevronRight className="h-4 w-4 text-[#9b9387] transition group-hover:translate-x-1" /> : null}
+                </button>
+                <div className="flex items-center gap-4 text-[#9b9387]"><div className="h-px flex-1 bg-[#ece5d7]" /><span className="text-xs font-medium uppercase tracking-[0.14em]">Or</span><div className="h-px flex-1 bg-[#ece5d7]" /></div>
+                {!phoneLoginOpen ? (
+                  <button className="mx-auto block rounded-lg px-3 py-2 text-sm font-semibold text-[#a56800] underline decoration-[#e9c77d] underline-offset-4 transition hover:text-[#784d00]" onClick={() => setPhoneLoginOpen(true)} type="button">
+                    Login with phone number
+                  </button>
+                ) : (
+                  <div className="space-y-5 rounded-[20px] border border-[#eee3ce] bg-[#fffdf8] p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[#4f3115]">Login with phone number</p>
+                      <button className="text-xs font-semibold text-[#a56800] hover:underline" onClick={() => { setPhoneLoginOpen(false); setRequested(false); setOtp(""); }} type="button">Use Google instead</button>
+                    </div>
+                    <Field label="Phone Number">
+                      <div className="flex h-[54px] items-center gap-4 rounded-[16px] border border-[#e7e3d8] bg-white px-4 shadow-[inset_0_0_0_1px_rgba(255,248,232,0.5)]">
+                        <Users size={19} className="text-[#8f8f95]" />
+                        <input className="w-full bg-transparent outline-none placeholder:text-[#9a9aa3]" inputMode="numeric" maxLength={10} pattern="[0-9]*" value={phone} onChange={(event) => setPhone(cleanPhoneInput(event.target.value))} placeholder="Enter your phone number" />
+                      </div>
+                    </Field>
+                    {requested ? (
+                      <Field label="OTP">
+                        <div className="flex h-[54px] items-center gap-4 rounded-[16px] border border-[#e7e3d8] bg-white px-4 shadow-[inset_0_0_0_1px_rgba(255,248,232,0.5)]">
+                          <ShieldCheck size={19} className="text-[#8f8f95]" />
+                          <input className="w-full bg-transparent text-[1.05rem] font-medium tracking-[0.28em] outline-none placeholder:text-[#9a9aa3]" inputMode="numeric" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Enter OTP" />
+                        </div>
+                      </Field>
+                    ) : null}
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-[#6a6460]">For invited admin numbers</span>
+                      <a className="font-medium text-[#d88500] underline-offset-4 hover:underline" href="mailto:support@darji.app?subject=Admin%20portal%20login%20help">Need help?</a>
+                    </div>
+                    <ActionButton
+                      className="h-[54px] w-full justify-center rounded-[16px] text-base font-semibold shadow-[0_14px_26px_rgba(246,163,19,0.2)]"
+                      disabled={isRequesting || isVerifying}
+                      onClick={async () => {
+                        if (!requested) {
+                          if (!/^[6-9]\d{9}$/.test(phone.trim())) { toast.error("Enter a valid 10 digit mobile number"); return; }
+                          const result = await onRequestOtp(phone.trim());
+                          if (result.success) setRequested(true);
+                          return;
+                        }
+                        if (!/^\d{6}$/.test(otp.trim())) { toast.error("Enter the 6 digit OTP"); return; }
+                        onVerifyOtp(phone.trim(), otp.trim());
+                      }}
+                    >
+                      {isRequesting || isVerifying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                      {requested ? "Verify and Open Dashboard" : "Send phone code"}
+                    </ActionButton>
+                  </div>
+                )}
               </div>
 
               <div className="mt-7 flex items-center gap-4 text-[#8c8781] sm:mt-10">
@@ -4364,6 +4402,17 @@ function LoginFeature({
         <p className="mt-1.5 max-w-[360px] text-[1rem] leading-7 text-[#72665c]">{description}</p>
       </div>
     </div>
+  );
+}
+
+function GoogleMark() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5 shrink-0" viewBox="0 0 48 48">
+      <path fill="#4285F4" d="M43.6 24c0-1.4-.1-2.7-.4-4H24v8h11c-.5 2.7-2 5-4.4 6.5l6.8 5.3C41.4 36.2 43.6 30.6 43.6 24Z" />
+      <path fill="#34A853" d="M24 44c5.6 0 10.3-1.9 13.7-5.2l-6.8-5.3c-1.9 1.3-4.3 2.1-6.9 2.1-5.3 0-9.8-3.6-11.4-8.4l-7 5.4C7 39.3 15 44 24 44Z" />
+      <path fill="#FBBC05" d="M12.6 27.2c-.4-1-.6-2.1-.6-3.2s.2-2.2.6-3.2l-7-5.4C4.6 18 4 20.9 4 24s.6 6 1.6 8.6l7-5.4Z" />
+      <path fill="#EA4335" d="M24 12.4c3.1 0 5.9 1.1 8.1 3.2l6.1-6.1C34.5 6.4 29.7 4 24 4 15 4 7 8.7 5 15.4l7 5.4c1.6-4.8 6.1-8.4 12-8.4Z" />
+    </svg>
   );
 }
 
@@ -6548,17 +6597,27 @@ function RolesModule({
   admins,
   pendingInvite,
   pendingDelete,
+  pendingGoogleEmail,
   onInvite,
-  onDelete
+  onDelete,
+  onSetGoogleEmail
 }: {
   admins: AdminUser[];
   pendingInvite: boolean;
   pendingDelete: boolean;
+  pendingGoogleEmail: boolean;
   onInvite: (phone: string) => void;
   onDelete: (userId: string) => void;
+  onSetGoogleEmail: (userId: string, email: string) => void;
 }) {
   const [phone, setPhone] = useState("");
+  const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
   const rows = admins;
+  const emailsJson = JSON.stringify(admins.map((admin) => [admin.id, admin.email ?? ""]));
+
+  useEffect(() => {
+    setEmailDrafts(Object.fromEntries(admins.map((admin) => [admin.id, admin.email ?? ""])));
+  }, [emailsJson]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -6573,7 +6632,7 @@ function RolesModule({
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Admin Accounts" description="Every phone number in this list has full dashboard access. Numbers not listed here cannot log in." />
+      <SectionIntro title="Admin Accounts" description="Phone OTP remains available to invited admin numbers. Google sign-in is allowed only when a Google-verified email is linked to one of these admin accounts." />
       <Panel>
         <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={submit}>
           <div>
@@ -6595,7 +6654,7 @@ function RolesModule({
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
+              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Phone</th><th className="min-w-[320px] px-4 py-3">Approved Google email</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
             </thead>
             <tbody>
               {rows.map((admin, adminIndex) => {
@@ -6604,6 +6663,33 @@ function RolesModule({
                   <tr key={admin.id} className="border-b border-[var(--panel-border)]">
                     <td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{adminIndex + 1}</td>
                     <td className="px-4 py-3 font-semibold">+91 {admin.phone}</td>
+                    <td className="min-w-[320px] px-4 py-3">
+                      <div className="flex min-w-[300px] gap-2">
+                        <input
+                          aria-label={`Approved Google sign-in email for +91 ${admin.phone}`}
+                          autoComplete="off"
+                          className="min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)] dark:bg-white/5"
+                          disabled={pendingGoogleEmail}
+                          onChange={(event) => setEmailDrafts((current) => ({ ...current, [admin.id]: event.target.value }))}
+                          placeholder="name@example.com"
+                          type="email"
+                          value={emailDrafts[admin.id] ?? admin.email ?? ""}
+                        />
+                        <ActionButton
+                          className="px-3 py-2 text-xs"
+                          disabled={pendingGoogleEmail || (emailDrafts[admin.id] ?? admin.email ?? "") === (admin.email ?? "")}
+                          onClick={() => {
+                            const email = (emailDrafts[admin.id] ?? "").trim().toLowerCase();
+                            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                              toast.error("Enter a valid Google email address");
+                              return;
+                            }
+                            onSetGoogleEmail(admin.id, email);
+                          }}
+                        >Save</ActionButton>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[var(--muted)]">Google verifies this email at sign-in.</p>
+                    </td>
                     <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Full access · Owner" : "Full access"}</Badge></td>
                     <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
                     <td className="px-4 py-3">

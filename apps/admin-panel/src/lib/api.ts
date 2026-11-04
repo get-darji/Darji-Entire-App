@@ -189,6 +189,13 @@ export async function verifyOtp(phone: string, otp: string) {
   return unwrap<AuthSession>(api.post("/auth/verify-otp", { phone, otp, role: "ADMIN", platform: "ADMIN_PANEL" }));
 }
 
+export async function getAdminGoogleSignInUrl() {
+  const response = await fetch("/api/auth/google/start", { cache: "no-store" });
+  const payload = await response.json() as ApiEnvelope<{ authorizationUrl: string }> & { message?: string };
+  if (!response.ok || !payload.data?.authorizationUrl) throw new Error(payload.message ?? "Google sign-in is temporarily unavailable");
+  return payload.data.authorizationUrl;
+}
+
 export async function getMe() {
   return unwrap<MeResponse>(api.get("/auth/me"));
 }
@@ -804,6 +811,10 @@ export async function deleteAdminAccount(userId: string) {
 
 export async function inviteAdmin(payload: { phone: string }) {
   return unwrap<AdminUser>(api.post("/users/admin-invite", payload));
+}
+
+export async function updateAdminGoogleEmail(userId: string, email: string) {
+  return unwrap<AdminUser>(api.put(`/admin/users/${encodeURIComponent(userId)}/google-email`, { email }));
 }
 
 export async function reviewTailorVerification(payload: {
