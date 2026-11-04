@@ -77,9 +77,20 @@ export async function completeAdminGoogleSignIn(code: string, state: string, req
   }
 
   const email = profile.email.trim().toLowerCase();
-  const user = email === OWNER_ADMIN_EMAIL
-    ? await UserModel.findOne({ email, phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN" })
-    : await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  let user;
+  if (email === OWNER_ADMIN_EMAIL) {
+    user = await UserModel.findOne({ phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN" });
+    if (user?.email && user.email.trim().toLowerCase() !== OWNER_ADMIN_EMAIL) {
+      throw new AppError(403, "The protected owner account is linked to a different email");
+    }
+    const emailCollision = user
+      ? await UserModel.findOne({ email, _id: { $ne: user.id } }).select("_id").lean()
+      : null;
+    if (emailCollision) throw new AppError(409, "The owner email is linked to another Darji account");
+    if (user) user.email = OWNER_ADMIN_EMAIL;
+  } else {
+    user = await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  }
   if (!user) throw new AppError(403, "This verified email has not been approved for an admin account");
   if (user.accountStatus === "BANNED") throw new AppError(403, "This admin account is banned");
   if (user.accountStatus === "SUSPENDED") {
