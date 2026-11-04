@@ -18,8 +18,11 @@ export async function connectDatabase() {
     return;
   }
 
-  if (env.NODE_ENV === "production") {
-    throw new Error("MONGODB_URI is required in production. Refusing to start with mongodb-memory-server.");
+  const isRailwayRuntime = Boolean(
+    process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID
+  );
+  if (env.NODE_ENV === "production" || isRailwayRuntime) {
+    throw new Error("MONGODB_URI is required in hosted or production environments. Refusing to start with mongodb-memory-server.");
   }
 
   memoryServer = await MongoMemoryServer.create();

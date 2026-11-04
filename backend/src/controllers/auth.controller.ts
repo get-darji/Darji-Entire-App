@@ -75,6 +75,30 @@ async function assertAdminPhoneAllowed(phone: string, role?: string) {
   }
 }
 
+async function findOrCreateNonAdminUser(phone: string, role: string) {
+  const admin = await UserModel.findOne({ phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  if (admin) return admin;
+
+  try {
+    const user = await UserModel.findOneAndUpdate(
+      { phone, role: { $nin: ["ADMIN", "SUPER_ADMIN"] } },
+      nonAdminLoginUpdate(phone, role),
+      { upsert: true, returnDocument: "after" }
+    );
+    if (user) return user;
+  } catch (error) {
+    const isDuplicateKey = typeof error === "object" && error !== null && "code" in error && error.code === 11000;
+    if (!isDuplicateKey) throw error;
+    // An admin invite can race this non-admin login. Re-read the account instead
+    // of retrying an update that could downgrade the newly invited admin.
+    const racedAccount = await UserModel.findOne({ phone });
+    if (racedAccount) return racedAccount;
+    throw error;
+  }
+
+  throw new AppError(500, "Could not load the account after OTP verification");
+}
+
 async function clearExpiredSuspension(user: {
   accountStatus?: string | null;
   suspendedUntil?: Date | string | null;
@@ -158,11 +182,7 @@ export async function verifyOtpController(req: Request, res: Response) {
   const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
   const user = requestedAdmin
     ? await UserModel.findOne({ phone: input.phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } })
-    : await UserModel.findOneAndUpdate(
-        { phone: input.phone },
-        nonAdminLoginUpdate(input.phone, input.role),
-        { upsert: true, returnDocument: "after" }
-      );
+    : await findOrCreateNonAdminUser(input.phone, input.role);
   if (!user) throw new AppError(403, "This phone number is not allowed to access the admin portal");
   const role = requestedAdmin ? (user.role as "ADMIN" | "SUPER_ADMIN") : input.role;
   await clearExpiredSuspension(user);

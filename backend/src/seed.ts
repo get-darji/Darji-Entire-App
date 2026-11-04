@@ -14,7 +14,24 @@ import {
  } from "./models.js";
 
 async function upsertUser(phone: string, data: { name: string; role: string }) {
-  const user = await UserModel.findOneAndUpdate({ phone }, { $set: data, $setOnInsert: { phone } }, { upsert: true, returnDocument: "after" });
+  const admin = await UserModel.findOne({ phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  if (admin) return admin;
+
+  let user;
+  try {
+    user = await UserModel.findOneAndUpdate(
+      { phone, role: { $nin: ["ADMIN", "SUPER_ADMIN"] } },
+      { $set: data, $setOnInsert: { phone } },
+      { upsert: true, returnDocument: "after" }
+    );
+  } catch (error) {
+    const isDuplicateKey = typeof error === "object" && error !== null && "code" in error && error.code === 11000;
+    if (!isDuplicateKey) throw error;
+    // Preserve an admin invite made while a seed upsert was starting.
+    user = await UserModel.findOne({ phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+    if (!user) throw error;
+  }
+  if (!user) throw new Error(`Unable to seed user ${phone}`);
   if (data.role === "TAILOR" || data.role === "DELIVERY_PARTNER") {
     await WalletModel.updateOne(
       { userId: user.id, userType: data.role },
