@@ -28,6 +28,8 @@ const envSchema = z.object({
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().trim().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().trim().optional(),
+  ADMIN_GOOGLE_OAUTH_CLIENT_ID: z.string().trim().optional(),
+  ADMIN_GOOGLE_OAUTH_CLIENT_SECRET: z.string().trim().optional(),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
   ADMIN_ALERT_EMAILS: z.string().optional(),
   ADMIN_PANEL_URL: z.string().url().default("https://darji-entire-app-admin-panel-xi.vercel.app/?section=alerts"),

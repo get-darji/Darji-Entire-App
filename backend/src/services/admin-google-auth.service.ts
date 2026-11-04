@@ -11,17 +11,25 @@ import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
 
 const STATE_PURPOSE = "darji-admin-google-sign-in";
 
+function getAdminGoogleOAuthCredentials() {
+  return {
+    clientId: env.ADMIN_GOOGLE_OAUTH_CLIENT_ID || env.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: env.ADMIN_GOOGLE_OAUTH_CLIENT_SECRET || env.GOOGLE_OAUTH_CLIENT_SECRET
+  };
+}
+
 export function adminGoogleRedirectUri() {
   return new URL("/api/auth/google/callback", env.ADMIN_PANEL_URL).toString();
 }
 
 export function createAdminGoogleAuthorizationUrl() {
-  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
+  const credentials = getAdminGoogleOAuthCredentials();
+  if (!credentials.clientId || !credentials.clientSecret) {
     throw new AppError(503, "Google sign-in is not configured on the backend");
   }
   const state = jwt.sign({ purpose: STATE_PURPOSE, nonce: randomUUID() }, env.JWT_ACCESS_SECRET, { expiresIn: "10m" });
   const query = new URLSearchParams({
-    client_id: env.GOOGLE_OAUTH_CLIENT_ID,
+    client_id: credentials.clientId,
     redirect_uri: adminGoogleRedirectUri(),
     response_type: "code",
     scope: "openid email",
@@ -47,8 +55,8 @@ export async function completeAdminGoogleSignIn(code: string, state: string, req
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: env.GOOGLE_OAUTH_CLIENT_ID!,
-      client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET!,
+      client_id: getAdminGoogleOAuthCredentials().clientId!,
+      client_secret: getAdminGoogleOAuthCredentials().clientSecret!,
       redirect_uri: adminGoogleRedirectUri(),
       grant_type: "authorization_code"
     }),
