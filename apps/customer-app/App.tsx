@@ -769,8 +769,8 @@ const QUOTE_WAIT_SECONDS = 90;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const CUSTOMER_NOTIFICATION_PREFS_KEY = "darji.customerNotificationPreferences.v1";
-const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "measurements", "orderSummary", "quotes", "confirmOrder"]);
-const REQUEST_FLOW_STEPS = ["newRequest", "clothIssue", "measurements", "orderSummary", "quotes", "confirmOrder"] as const satisfies readonly RequestFlowScreen[];
+const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "measurements", "quotes", "confirmOrder"]);
+const REQUEST_FLOW_STEPS = ["newRequest", "measurements", "quotes", "confirmOrder"] as const satisfies readonly RequestFlowScreen[];
 function getPlatformFee(orderValue: number) {
   if (orderValue <= 0) return 0;
   if (orderValue <= 199) return 5;
@@ -3637,9 +3637,11 @@ function NewRequestScreen({
   const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
   const descriptionLength = draft.description.trim().length;
   const descriptionRemaining = Math.max(REQUEST_DESCRIPTION_MIN - descriptionLength, 0);
+  const hasVoiceInstructions = Boolean((draft.voiceNotes?.length ?? 0) || (draft.uploadedVoiceNotes?.length ?? 0));
+  const hasInstructions = descriptionLength >= REQUEST_DESCRIPTION_MIN || hasVoiceInstructions;
   const pickupAddressText = displayAddressFields(pickupAddressFields);
   const pickupAddressMissing = missingAddressFields(pickupAddressFields);
-  const canContinueRequest = draft.media.length > 0 && descriptionLength >= REQUEST_DESCRIPTION_MIN && (!needsPickupAddress || (pickupAddressMissing.length === 0 && !availabilityChecking && pickupAvailability?.serviceable === true));
+  const canContinueRequest = Boolean(draft.gender && hasInstructions && (!needsPickupAddress || (pickupAddressMissing.length === 0 && !availabilityChecking && pickupAvailability?.serviceable === true)));
   const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
 
   function leaveCurrentItem() {
@@ -3854,12 +3856,12 @@ function NewRequestScreen({
       Alert.alert("Login required", "Please login again.");
       return;
     }
-    if (draft.media.length === 0) {
-      Alert.alert("Photo required", "Please add at least one photo or video so the tailor can understand the cloth and work.");
+    if (!draft.gender) {
+      Alert.alert("Fit type required", "Please select who this request is for.");
       return;
     }
-    if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
-      Alert.alert("Description required", `Please describe the stitching, alteration, or issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
+    if (!hasInstructions) {
+      Alert.alert("Instructions required", `Add a text description of at least ${REQUEST_DESCRIPTION_MIN} characters or record a voice note.`);
       return;
     }
     if (needsPickupAddress && pickupAddressMissing.length) {
@@ -3869,13 +3871,15 @@ function NewRequestScreen({
     try {
       setUploading(true);
       const hasVideo = draft.media.some((item) => item.type === "video");
-      const uploaded = await withUploadTimeout(
-        uploadMedia(draft.media, token),
-        hasVideo ? 180000 : 90000,
-        hasVideo
-          ? "Video upload is taking too long. Try a shorter video or photos first."
-          : "Photo upload is taking too long. Check internet and try again."
-      );
+      const uploaded = draft.media.length
+        ? await withUploadTimeout(
+            uploadMedia(draft.media, token),
+            hasVideo ? 180000 : 90000,
+            hasVideo
+              ? "Video upload is taking too long. Try a shorter video or photos first."
+              : "Photo upload is taking too long. Check internet and try again."
+          )
+        : draft.uploadedMedia;
       let uploadedVoiceNotes = draft.uploadedVoiceNotes ?? [];
       if (draft.voiceNotes?.length) {
         try {
@@ -3885,12 +3889,24 @@ function NewRequestScreen({
             "Voice note upload timed out"
           );
         } catch (voiceError) {
-          console.log("Voice note upload skipped", voiceError);
+          if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
+            throw new Error(voiceError instanceof Error ? voiceError.message : "Voice note upload failed. Please try again or add text instructions.");
+          }
+          console.log("Voice note upload skipped because text instructions are available", voiceError);
           uploadedVoiceNotes = [];
         }
       }
-      setDraft({ ...draft, uploadedMedia: uploaded, uploadedVoiceNotes });
-      setScreen("clothIssue");
+      setDraft({
+        ...draft,
+        clothType: "Custom Garment",
+        workType: "Customer Request",
+        serviceCategory: "Other",
+        selectedWorkItems: [],
+        otherWorkDescription: draft.description.trim() || "Voice instructions provided",
+        uploadedMedia: uploaded,
+        uploadedVoiceNotes
+      });
+      setScreen("measurements");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Try uploading smaller files.";
       if (/access to this resource|authentication required|invalid session|session expired/i.test(message)) {
@@ -4115,9 +4131,9 @@ function NewRequestScreen({
         <Header
           title={draft.editingItemId ? `Edit Item ${currentItemNumber}` : currentItemNumber > 1 ? `Cloth Item ${currentItemNumber}` : "New Request"}
           onBack={leaveCurrentItem}
-          right={<Text style={styles.stepBadge}>1/3</Text>}
+          right={<Text style={styles.stepBadge}>1/2</Text>}
         />
-        <RequestProgressBar step={1} total={3} />
+        <RequestProgressBar step={1} total={2} />
         <View style={styles.requestSafetyCard}>
           <View style={styles.requestSafetyIcon}>
             <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
@@ -4134,43 +4150,28 @@ function NewRequestScreen({
           </View>
         ) : null}
 
-        <Text style={styles.formLabel}>Add Photos or Video</Text>
-        <View style={styles.uploadRow}>
-          {[
-            ["camera-outline", "Camera", openCamera],
-            ["image-outline", "Gallery", pickFromGallery],
-            ["videocam-outline", "Video", pickFromGallery]
-          ].map(([icon, label, action]) => (
-            <Pressable key={label as string} style={styles.uploadBox} onPress={action as () => void}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_ORANGE} />
-              <Text style={styles.uploadText}>{label as string}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Pressable style={styles.addPhotoButton} onPress={pickFromGallery}>
-          <Ionicons name="share-outline" size={16} color={BRAND_ORANGE} />
-          <Text style={styles.addPhotoText}>{draft.media.length ? `${draft.media.length} selected - Add More` : "Add More Photos"}</Text>
-        </Pressable>
-        {draft.media.length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
-            {draft.media.map((item, index) => (
-              <View key={`${item.uri}-${index}`} style={styles.previewBox}>
-                <Image source={{ uri: item.uri }} resizeMode="cover" style={styles.previewImage} />
-                {item.type === "video" ? (
-                  <View style={styles.videoBadge}>
-                    <Ionicons name="play" size={10} color="#ffffff" />
-                  </View>
-                ) : null}
-                <Pressable style={styles.removePreview} onPress={() => setDraft({ ...draft, media: draft.media.filter((_, itemIndex) => itemIndex !== index), uploadedMedia: [] })}>
-                  <Ionicons name="close" size={12} color="#ffffff" />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        ) : null}
+        <ClothDetailsSelectionView
+          fitOnly
+          gender={draft.gender}
+          clothType={draft.clothType}
+          otherClothType={draft.otherClothType}
+          serviceCategory={draft.serviceCategory}
+          selectedWorkItems={draft.selectedWorkItems ?? []}
+          otherWorkDescription={draft.otherWorkDescription}
+          garmentSearch=""
+          filteredGarments={[]}
+          selectedService={undefined}
+          onSelectGender={(gender) => setDraft({ ...draft, gender })}
+          onSelectClothType={() => undefined}
+          onChangeOtherClothType={() => undefined}
+          onSelectServiceCategory={() => undefined}
+          onToggleWorkItem={() => undefined}
+          onChangeOtherWorkDescription={() => undefined}
+          onGarmentSearchChange={() => undefined}
+        />
 
-        <Text style={styles.formLabel}>Tell Us What You Need</Text>
-        <Text style={styles.requestSectionHelper}>The more details you share, the more accurate the price will be.</Text>
+        <Text style={styles.formLabel}>Describe What You Need (Optional)</Text>
+        <Text style={styles.requestSectionHelper}>Type your instructions, record them, or use both. At least one is required.</Text>
         <TextInput
           multiline
           style={styles.descriptionInput}
@@ -4180,7 +4181,11 @@ function NewRequestScreen({
           onChangeText={(description) => setDraft({ ...draft, description })}
         />
         <Text style={[styles.fieldDisclaimer, styles.descriptionCounter]}>
-          {descriptionRemaining > 0 ? `${descriptionRemaining} more character${descriptionRemaining === 1 ? "" : "s"} required.` : "Description looks good."}
+          {descriptionLength >= REQUEST_DESCRIPTION_MIN
+            ? "Text instructions added."
+            : hasVoiceInstructions
+              ? "Voice instructions added; text can stay empty."
+              : `Add ${descriptionRemaining} more text character${descriptionRemaining === 1 ? "" : "s"}, or record a voice note.`}
         </Text>
 
         <Text style={styles.formLabel}>Voice Instructions</Text>
@@ -4190,7 +4195,7 @@ function NewRequestScreen({
           </View>
           <View style={styles.voiceNoteText}>
             <Text style={styles.addressTitle}>{recordingActive ? recordingPaused ? "Recording paused" : "Recording..." : draft.voiceNotes?.length ? `${draft.voiceNotes.length}/${MAX_VOICE_NOTES_PER_ITEM} voice clips added` : "Record a voice note"}</Text>
-            <Text style={styles.mutedSmall}>{recordingActive ? `${Math.max(0, Math.round(audioRecorderState.durationMillis / 1000))}s recorded. Tap Done to save.` : draft.voiceNotes?.length ? "Tap any clip to replay it, or add another short instruction." : "Optional, useful for detailed fitting instructions."}</Text>
+            <Text style={styles.mutedSmall}>{recordingActive ? `${Math.max(0, Math.round(audioRecorderState.durationMillis / 1000))}s recorded. Tap Done to save.` : draft.voiceNotes?.length ? "Tap any clip to replay it, or add another short instruction." : "Required only when no text description is provided."}</Text>
           </View>
           {recordingActive ? (
             <Pressable style={styles.voiceRoundButton} onPress={toggleRecordingPause}>
@@ -4235,6 +4240,42 @@ function NewRequestScreen({
               );
             })}
           </View>
+        ) : null}
+
+        <Text style={styles.formLabel}>Add Photos or Video (Optional)</Text>
+        <Text style={styles.requestSectionHelper}>Show the cloth, issue, or design when visuals will help the tailor understand your request.</Text>
+        <View style={styles.uploadRow}>
+          {[
+            ["camera-outline", "Camera", openCamera],
+            ["image-outline", "Gallery", pickFromGallery],
+            ["videocam-outline", "Video", pickFromGallery]
+          ].map(([icon, label, action]) => (
+            <Pressable key={label as string} style={styles.uploadBox} onPress={action as () => void}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_ORANGE} />
+              <Text style={styles.uploadText}>{label as string}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable style={styles.addPhotoButton} onPress={pickFromGallery}>
+          <Ionicons name="share-outline" size={16} color={BRAND_ORANGE} />
+          <Text style={styles.addPhotoText}>{draft.media.length ? `${draft.media.length} selected - Add More` : "Add Photos or Video"}</Text>
+        </Pressable>
+        {draft.media.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
+            {draft.media.map((item, index) => (
+              <View key={`${item.uri}-${index}`} style={styles.previewBox}>
+                <Image source={{ uri: item.uri }} resizeMode="cover" style={styles.previewImage} />
+                {item.type === "video" ? (
+                  <View style={styles.videoBadge}>
+                    <Ionicons name="play" size={10} color="#ffffff" />
+                  </View>
+                ) : null}
+                <Pressable style={styles.removePreview} onPress={() => setDraft({ ...draft, media: draft.media.filter((_, itemIndex) => itemIndex !== index), uploadedMedia: [] })}>
+                  <Ionicons name="close" size={12} color="#ffffff" />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
         ) : null}
 
         {needsPickupAddress ? (
@@ -4299,7 +4340,7 @@ function NewRequestScreen({
 
         <View style={styles.requestRequirementBanner}>
           <Ionicons name="information-circle-outline" size={17} color="#b45309" />
-          <Text style={styles.requestRequirementText}>Photos, work details and pickup address are needed to continue.</Text>
+          <Text style={styles.requestRequirementText}>Select a fit type and add either text or voice instructions. Pickup address is required for service and pricing.</Text>
         </View>
         {isAddingAnotherItem ? (
           <Pressable style={styles.secondaryWideButton} onPress={leaveCurrentItem} disabled={uploading}>
@@ -5327,6 +5368,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const [clothWarningMessage, setClothWarningMessage] = useState("");
   const [showAllWorkOptions, setShowAllWorkOptions] = useState((draft.selectedWorkItems?.length ?? 0) === 0);
   const token = useAppStore((state) => state.token);
+  const signOut = useAppStore((state) => state.signOut);
   const measurementGuide = guideForClothType(draft.clothType);
   const measurements = draft.measurements ?? {};
   const hasManualMeasurements = Object.values(measurements).some((value) => value.trim()) || Boolean(draft.measurementNotes?.trim());
@@ -5353,13 +5395,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const hasTimeSlotSelection = !draft.homeMeasurementBooked || Boolean(draft.preferredMeasurementSlot);
   const canContinue = Boolean(
     draft.gender &&
-    draft.clothType &&
-    hasOtherClothType &&
-    selectedService &&
-    hasWorkSelection &&
     draft.urgency &&
     (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked) &&
-    hasRequiredReferencePhotos &&
     hasTimeSlotSelection
   );
   const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection && hasRequiredReferencePhotos);
@@ -5583,8 +5620,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       Alert.alert("Measurement required", "Please choose at least one measurement option: Enter manual measurements, Send a sample, or Book home measurement.");
       return undefined;
     }
-    if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
-      Alert.alert("Add details", `Describe the issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
+    const hasInstructions = draft.description.trim().length >= REQUEST_DESCRIPTION_MIN || Boolean((draft.voiceNotes?.length ?? 0) || (draft.uploadedVoiceNotes?.length ?? 0));
+    if (!hasInstructions) {
+      Alert.alert("Add instructions", `Add a text description of at least ${REQUEST_DESCRIPTION_MIN} characters or record a voice note.`);
       setScreen("newRequest");
       return undefined;
     }
@@ -5606,8 +5644,37 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       setSavingAction("summary");
       const saved = await saveClothingItem();
       if (!saved) return;
-      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, uploadedDesignMedia: saved.uploadedDesignMedia, items: saved.items }));
-      setScreen("orderSummary");
+      const itemPayloads = saved.items.map(payloadForClothingItem);
+      const primary = itemPayloads[0];
+      const preferredMeasurementSlot = saved.items.find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot ?? draft.preferredMeasurementSlot;
+      const request = await api<BackendTailoringRequest>(
+        "/tailoring-requests",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...primary,
+            urgency: draft.urgency,
+            pickupAddress: draft.pickup,
+            pickupLocation: draft.pickupLocation,
+            preferredMeasurementSlot,
+            items: itemPayloads
+          })
+        },
+        token
+      );
+      setDraft({
+        ...draft,
+        uploadedSampleMedia: saved.uploadedSampleMedia,
+        uploadedDesignMedia: saved.uploadedDesignMedia,
+        items: saved.items,
+        preferredMeasurementSlot,
+        backendRequestId: request.id
+      });
+      setScreen("quotes");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send this request to tailors.";
+      Alert.alert("Request failed", message);
+      if (/session expired|invalid session|authentication required/i.test(message)) signOut();
     } finally {
       setSavingAction(undefined);
     }
@@ -5719,11 +5786,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       ) : (
         <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
           <Header
-            title={`${stage === "measurements" ? "Measurements & Timing" : "Cloth Details"} · Item ${currentItemNumber} of ${totalItemCount}`}
-            onBack={() => setScreen(stage === "measurements" ? "clothIssue" : draft.editingItemId ? "orderSummary" : "newRequest")}
-            right={<Text style={styles.stepBadge}>{stage === "measurements" ? "3/3" : "2/3"}</Text>}
+            title={stage === "measurements" ? "Measurements & Timing" : `Cloth Details · Item ${currentItemNumber} of ${totalItemCount}`}
+            onBack={() => setScreen(stage === "measurements" ? "newRequest" : draft.editingItemId ? "orderSummary" : "newRequest")}
+            right={<Text style={styles.stepBadge}>{stage === "measurements" ? "2/2" : "2/3"}</Text>}
           />
-        <RequestProgressBar step={stage === "measurements" ? 3 : 2} total={3} />
+        <RequestProgressBar step={2} total={stage === "measurements" ? 2 : 3} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -5809,11 +5876,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
         {stage === "measurements" ? (
           <>
             <View style={styles.whiteCard}>
-              <Text style={styles.cardLabel}>SELECTED WORK</Text>
+              <Text style={styles.cardLabel}>REQUEST OVERVIEW</Text>
               <SummaryRow label="Fit type" value={draft.gender ?? "Not selected"} />
-              <SummaryRow label="Garment" value={draft.clothType ?? "Not selected"} />
-              <SummaryRow label="Service" value={selectedService?.label ?? "Not selected"} />
-              <SummaryRow label="Work" value={selectedService?.label === "Other" ? draft.otherWorkDescription ?? "Not selected" : selectedWorkItems.join(", ") || "Not selected"} />
+              <SummaryRow label="Instructions" value={draft.description.trim() ? "Text added" : "Voice note added"} />
+              <SummaryRow label="Media" value={(draft.uploadedMedia.length || draft.media.length) ? `${draft.uploadedMedia.length || draft.media.length} attached` : "Not added"} />
             </View>
             <View style={styles.measurementChoiceHeader}>
               <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
@@ -6029,21 +6095,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
         {stage === "measurements" ? (
         <>
         <RequestFlowCta
-          label="Continue to Pricing"
+          label="Find Tailors"
           onPress={continueToSummary}
           disabled={!canContinue || Boolean(savingAction)}
           loading={savingAction === "summary"}
         />
-        <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.secondaryWideButton, (!canContinue || Boolean(savingAction)) && styles.buttonDisabled]} onPress={addAnotherCloth}>
-          {savingAction === "another" ? (
-            <ActivityIndicator color={BRAND_ORANGE} />
-          ) : (
-            <>
-              <Ionicons name="add-circle-outline" size={18} color={canContinue ? BRAND_ORANGE : "#777777"} />
-              <Text style={[styles.secondaryWideButtonText, !canContinue && styles.disabledText]}>Add Another Cloth</Text>
-            </>
-          )}
-        </Pressable>
         </>
         ) : null}
       </ScrollView>
@@ -6630,14 +6686,11 @@ function OrderSummaryScreen({
       return;
     }
     const incomplete = items.find((item) =>
-      !item.description.trim() ||
-      !item.clothType ||
-      (item.clothType === "Other" && !item.otherClothType?.trim()) ||
-      !item.workType ||
-      !item.uploadedMedia.length
+      (item.description.trim().length < REQUEST_DESCRIPTION_MIN && !(item.uploadedVoiceNotes?.length ?? 0)) ||
+      !item.gender
     );
     if (incomplete) {
-      showDialog({ title: "Item incomplete", message: `${clothingItemTitle(incomplete)} needs photos, description, a garment, and service/work selection.`, actions: [{ label: "OK" }] });
+      showDialog({ title: "Request incomplete", message: "Each request needs a fit type and either text or voice instructions.", actions: [{ label: "OK" }] });
       return;
     }
 

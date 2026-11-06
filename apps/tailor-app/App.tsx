@@ -995,6 +995,7 @@ function StatusPill({ status }: { status: string }) {
 function RequestCard({ request, onPress }: { request: TailoringRequest; onPress: () => void }) {
   const itemCount = requestItemCount(request);
   const isInstant = request.urgency?.toUpperCase().includes("INSTANT");
+  const hasVoiceInstructions = Boolean(request.voiceNotes?.length || request.items?.some((item) => item.voiceNotes?.length));
   return (
     <Pressable style={[styles.requestCard, isInstant && styles.instantRequestCard]} onPress={onPress}>
       <View style={styles.requestCardTopRow}>
@@ -1003,8 +1004,8 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
         </View>
         <View style={styles.cardMain}>
           <Text style={styles.prominentOrderId}>REQ-{request.id.slice(0, 8).toUpperCase()}</Text>
-          <Text style={styles.cardTitle}>{itemCount === 1 ? request.workType : `New Order - ${itemCount} Clothing Items`}</Text>
-          <Text style={styles.cardMeta}>{itemCount === 1 ? request.clothType : requestSummary(request)}</Text>
+          <Text style={styles.cardTitle}>{itemCount === 1 ? "New Tailoring Request" : `New Order - ${itemCount} Requests`}</Text>
+          <Text style={styles.cardMeta}>{itemCount === 1 ? request.gender || "Fit type not specified" : requestSummary(request)}</Text>
         </View>
       </View>
       <View style={styles.requestChipRow}>
@@ -1012,7 +1013,7 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
         {itemCount > 1 ? <Text style={styles.quotedPill}>{itemCount} items</Text> : null}
         {request.ownQuote ? <Text style={styles.quotedPill}>Price sent</Text> : <StatusPill status={request.status} />}
       </View>
-      <Text style={styles.cardCopy} numberOfLines={2}>{request.description}</Text>
+      <Text style={styles.cardCopy} numberOfLines={2}>{request.description || (hasVoiceInstructions ? "Voice instructions attached" : "Customer instructions attached")}</Text>
       <TimestampBadge label="Created" value={request.createdAt} />
       <View style={styles.infoRow}>
         <Ionicons name="receipt-outline" size={15} color={MUTED} />
@@ -2275,15 +2276,6 @@ function RequestDetailsScreen({
     setVoicePlaybackStatus({ currentTime: nextTime, duration: voicePlaybackStatus.duration });
     voiceWaveProgress.setValue(nextTime / voicePlaybackStatus.duration);
   }
-  const detailTiles = selectedItem ? [
-    { bg: selectedGenderDetail.bg, color: selectedGenderDetail.color, icon: selectedGenderDetail.icon, label: "For", value: selectedGender || "Not specified" },
-    { bg: "#f3e8ff", color: "#a855f7", icon: "shirt-outline" as const, label: "Garment", value: selectedItem.clothType || request.clothType || "Garment" },
-    { bg: "#e0f2fe", color: "#0284c7", icon: "cut-outline" as const, label: "Service", value: selectedItem.serviceCategory || selectedItem.workType || "Tailoring" },
-    { bg: "#fff7ed", color: BRAND_ORANGE, icon: "create-outline" as const, label: "Work", value: requestWorkLabel(selectedItem), displayValue: requestWorkDisplayLabel(selectedItem) },
-    { bg: "#dcfce7", color: "#16a34a", icon: "resize-outline" as const, label: "Measurement Method", value: measurementStatus(selectedItem) },
-    { bg: "#fff4dc", color: BRAND_ORANGE, icon: "flash-outline" as const, label: "Delivery Timing", value: request.urgency || "Normal" }
-  ] : [];
-
   useEffect(() => {
     if (selectedItemIndex >= items.length) setSelectedItemIndex(0);
   }, [items.length, selectedItemIndex]);
@@ -2335,12 +2327,10 @@ function RequestDetailsScreen({
             </View>
             <View style={styles.itemHeaderTextWrap}>
               <Text style={styles.itemHeaderTitle}>
-                {hasMultipleItems
-                  ? `Item ${selectedItemIndex + 1}: ${selectedItem.clothType || "Garment"}`
-                  : (selectedItem.clothType || "Garment")}
+                {hasMultipleItems ? `Request ${selectedItemIndex + 1}` : "Customer Request"}
               </Text>
               <Text style={styles.itemHeaderSubtitle}>
-                {[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  ·  ")}
+                {[selectedItem.gender, request.urgency].filter(Boolean).join("  ·  ")}
               </Text>
             </View>
           </View>
@@ -2348,16 +2338,13 @@ function RequestDetailsScreen({
 
 
 
-        {/* Work / Measurement / Delivery + For / Garment / Service detail card */}
+        {/* Only the customer details needed to assess and quote the request. */}
         <View style={styles.requestDetailCard}>
           <View style={styles.requestDetailCardHeader}>
             <Text style={styles.requestDetailCardTitle}>Request Details</Text>
           </View>
           {[
             { icon: selectedGenderDetail.icon, iconBg: selectedGenderDetail.bg, iconColor: selectedGenderDetail.color, label: "For", value: selectedGender || "Not specified" },
-            { icon: "shirt-outline" as const, iconBg: "#f3e8ff", iconColor: "#a855f7", label: "Garment", value: selectedItem?.clothType || request.clothType || "Garment" },
-            { icon: "cut-outline" as const, iconBg: "#e0f2fe", iconColor: "#0284c7", label: "Service", value: selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring" },
-            { icon: "pencil-outline" as const, iconBg: "#fff7ed", iconColor: "#f6a313", label: "Work", value: selectedItem ? requestWorkLabel(selectedItem) : "Alteration" },
             { icon: "resize-outline" as const, iconBg: "#dcfce7", iconColor: "#16a34a", label: "Measurement", value: selectedItem ? measurementStatus(selectedItem) : "Not added" },
             { icon: "flash-outline" as const, iconBg: "#fff4dc", iconColor: "#f59e0b", label: "Delivery", value: request.urgency || "Normal" }
           ].map((row, i) => (

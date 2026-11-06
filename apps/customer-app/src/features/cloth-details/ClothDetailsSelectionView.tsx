@@ -22,6 +22,7 @@ import {
 } from "./clothDetailsAssets";
 
 export interface ClothDetailsSelectionViewProps {
+  fitOnly?: boolean;
   gender?: string;
   clothType?: string;
   otherClothType?: string;
@@ -48,6 +49,7 @@ const SURFACE_BG = "#FFFFFF";
 const SURFACE_ALT = "#FFF8EB";
 
 export function ClothDetailsSelectionView({
+  fitOnly = false,
   gender,
   clothType,
   otherClothType,
@@ -117,6 +119,8 @@ export function ClothDetailsSelectionView({
         })}
       </View>
 
+      {!fitOnly ? (
+        <>
       {/* 2. SELECT GARMENT */}
       {gender ? (
         <View style={styles.sectionBlock}>
@@ -336,6 +340,8 @@ export function ClothDetailsSelectionView({
           </View>
           <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" />
         </View>
+      ) : null}
+        </>
       ) : null}
 
       {/* Reusable Explanation Video Modal */}

@@ -252,7 +252,7 @@ const measurementVisitTimeSlots = [
 const measurementVisitSlotSchema = z.enum(measurementVisitTimeSlots);
 
 const tailoringRequestItemInputSchema = z.object({
-  description: z.string().trim().min(10).max(1000),
+  description: z.string().trim().max(1000).default(""),
   gender: z.string().trim().min(2).max(40).optional(),
   clothType: z.string().trim().min(2).max(80),
   workType: z.string().trim().min(2).max(80),
@@ -289,6 +289,9 @@ const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
   }
   items.forEach((item, index) => {
     const pathPrefix: Array<string | number> = input.items?.length ? ["items", index] : [];
+    if (item.description.trim().length < 10 && item.voiceNotes.length === 0) {
+      context.addIssue({ code: "custom", path: [...pathPrefix, "description"], message: "Add a text description of at least 10 characters or a voice note" });
+    }
     if (item.selectedWorkItems.includes("Copy Existing Garment") && (!item.sampleProvided || item.sampleMedia.length === 0)) {
       context.addIssue({ code: "custom", path: [...pathPrefix, "sampleMedia"], message: "Upload a photo of the existing garment to copy" });
     }

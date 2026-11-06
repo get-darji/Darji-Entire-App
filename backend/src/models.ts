@@ -835,7 +835,7 @@ const requestMediaSchema = new Schema(
 const tailoringRequestItemSchema = new Schema(
   {
     _id: stringId,
-    description: { type: String, required: true },
+    description: { type: String, default: "" },
     gender: String,
     clothType: { type: String, required: true },
     workType: { type: String, required: true },
@@ -869,7 +869,7 @@ const tailoringRequestSchema = new Schema(
   {
     _id: stringId,
     customerId: { type: String, required: true, index: true },
-    description: { type: String, required: true },
+    description: { type: String, default: "" },
     gender: String,
     clothType: { type: String, required: true },
     workType: { type: String, required: true },
