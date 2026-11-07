@@ -6016,6 +6016,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
   const [uploadingImage, setUploadingImage] = useState(false);
   const [actionType, setActionType] = useState("OPEN_APP");
   const [actionEntityId, setActionEntityId] = useState("");
+  const [deliveryError, setDeliveryError] = useState("");
   const selectedPeople = target === "customer" ? customers : target === "tailor" ? tailors : target === "delivery_partner" ? partners : [];
   const isSingleTarget = ["customer", "tailor", "delivery_partner"].includes(target);
   const permittedActions = target === "tailors" || target === "tailor"
@@ -6025,9 +6026,11 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
       : [["OPEN_APP", "Open app"], ["VIEW_ORDER", "View order"], ["TRACK_DELIVERY", "Track delivery"], ["VIEW_PAYMENT", "View payment"], ["VIEW_ANNOUNCEMENT", "View announcement"]];
   const requiresEntity = actionType !== "OPEN_APP" && actionType !== "VIEW_ANNOUNCEMENT";
   const richBody = richEnabled ? { blocks: message.split(/\n+/).map((text) => text.trim()).filter(Boolean).slice(0, 12).map((text) => ({ type: bullets ? "bullet" as const : "paragraph" as const, text, ...(marks.length ? { marks } : {}) })) } : undefined;
-  const resetComposer = () => { setTitle(""); setMessage(""); setScheduledAt(""); setLargeIconUrl(""); setImageUrl(""); setImageMode("none"); setActionType("OPEN_APP"); setActionEntityId(""); setRichEnabled(false); setMarks([]); setBullets(false); };
+  const resetComposer = () => { setTitle(""); setMessage(""); setScheduledAt(""); setLargeIconUrl(""); setImageUrl(""); setImageMode("none"); setActionType("OPEN_APP"); setActionEntityId(""); setRichEnabled(false); setMarks([]); setBullets(false); setDeliveryError(""); };
   const useCampaign = (item: NotificationCampaign) => {
-    setTarget(item.target); setTargetUserId(item.targetUserId ?? ""); setTitle(item.title); setMessage(item.body); setCategory(item.category ?? "GENERAL_ANNOUNCEMENT"); setStyle(item.style ?? "STANDARD"); setRichEnabled(item.bodyFormat === "RESTRICTED_RICH_TEXT"); setMarks(item.richBody?.blocks?.[0]?.marks ?? []); setBullets(item.richBody?.blocks?.[0]?.type === "bullet"); setLargeIconUrl(item.largeIconUrl ?? ""); setImageUrl(item.imageUrl ?? ""); setImageMode(item.largeIconUrl && item.imageUrl ? "both" : item.largeIconUrl ? "large" : item.imageUrl ? "picture" : "none"); setActionType(item.action?.type ?? "OPEN_APP"); setActionEntityId(item.action?.entityId ?? "");
+    setTarget(item.target); setTargetUserId(item.targetUserId ?? ""); setTitle(item.title); setMessage(item.body); setScheduledAt(""); setCategory(item.category ?? "GENERAL_ANNOUNCEMENT"); setStyle(item.style ?? "STANDARD"); setRichEnabled(item.bodyFormat === "RESTRICTED_RICH_TEXT"); setMarks(item.richBody?.blocks?.[0]?.marks ?? []); setBullets(item.richBody?.blocks?.[0]?.type === "bullet"); setLargeIconUrl(item.largeIconUrl ?? ""); setImageUrl(item.imageUrl ?? ""); setImageMode(item.largeIconUrl && item.imageUrl ? "both" : item.largeIconUrl ? "large" : item.imageUrl ? "picture" : "none"); setActionType(item.action?.type ?? "OPEN_APP"); setActionEntityId(item.action?.entityId ?? ""); setDeliveryError("");
+    requestAnimationFrame(() => document.getElementById("notification-composer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    toast.success("Campaign copied into the composer. Review it before sending.");
   };
   const templates = [
     { label: "Order confirmed", title: "Your order is confirmed!", body: "Your tailoring order has been confirmed. Track its progress in Darji.", category: "ORDER_UPDATE" as const, action: "VIEW_ORDER", target: "customers" },
@@ -6038,6 +6041,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
   ];
   const sendMutation = useMutation({
     mutationFn: sendAdminNotification,
+    onMutate: () => setDeliveryError(""),
     onSuccess: (result) => {
       resetComposer();
       onRefresh();
@@ -6047,7 +6051,14 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
     },
     onError: (error) => {
       onRefresh();
-      toast.error(extractError(error));
+      const rawError = extractError(error);
+      const noTokenMatch = rawError.match(/no registered device tokens\s+app=([a-z_,\s]+)/i);
+      const appNames = noTokenMatch?.[1].trim().split(/[\s,]+/).filter(Boolean).join(", ");
+      const friendlyError = appNames
+        ? `No ${appNames} app devices have registered push tokens. Open the app on a signed-in phone, enable notifications in the app and device settings, then retry.`
+        : rawError;
+      setDeliveryError(friendlyError);
+      toast.error(friendlyError);
     }
   });
   const targetCount = isSingleTarget ? (targetUserId ? 1 : 0) : target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
@@ -6068,7 +6079,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
     <div className="space-y-6">
       <SectionIntro title="Notifications" description="Compose a safe, versioned push campaign. Delivery history records provider acceptance, not proof that a person opened it." />
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Panel>
+        <div id="notification-composer"><Panel>
           <div className="mb-4"><p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Start from a template</p><div className="mt-2 flex flex-wrap gap-2">{templates.map((template) => <button className="rounded-xl border border-[var(--panel-border)] px-3 py-2 text-xs font-semibold hover:border-orange-300 hover:bg-orange-50" key={template.label} onClick={() => { setTitle(template.title); setMessage(template.body); setCategory(template.category); setTarget(template.target); setActionType(template.action); }} type="button">{template.label}</button>)}</div></div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Channel"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 text-[var(--foreground)]" disabled value="Push notification" /></Field>
@@ -6102,6 +6113,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
             <Field label="Schedule time">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
+            {deliveryError ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 shrink-0 text-rose-600" size={18} /><div><p className="font-bold">Push delivery failed</p><p className="mt-1 leading-5">{deliveryError}</p>{deliveryError.startsWith("No ") && deliveryError.includes(" app devices have registered push tokens") ? <p className="mt-2 text-xs text-rose-800">The push provider is configured, but this audience currently has no matching registered device tokens.</p> : null}</div></div></div> : null}
             <div className="flex flex-col gap-3 sm:flex-row">
               <ActionButton disabled={!canSend || sendMutation.isPending} onClick={() => sendMutation.mutate(buildPayload("now"))}>
                 {sendMutation.isPending && sendMutation.variables?.sendMode === "now" ? "Sending..." : "Send Now"}
@@ -6112,7 +6124,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
               <ActionButton variant="secondary" disabled={!canSend || !isSingleTarget || sendMutation.isPending} onClick={() => sendMutation.mutate(buildPayload("now", true))}>Send test to selected account</ActionButton>
             </div>
           </div>
-        </Panel>
+        </Panel></div>
         <Panel>
           <h3 className="text-lg font-semibold">Android-style preview</h3>
           <div className="mt-4 rounded-3xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
@@ -6120,7 +6132,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
             <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white shadow-lg"><div className="flex gap-3">{(largeIconUrl || imageUrl) ? <img alt="" className="h-10 w-10 rounded-lg object-cover" src={largeIconUrl || imageUrl} /> : <div className="grid h-10 w-10 place-items-center rounded-lg bg-orange-500 font-black">D</div>}<div className="min-w-0 flex-1"><p className="text-[10px] uppercase tracking-wide text-slate-300">Darji · now</p><p className={cn("mt-1 font-bold", marks.includes("italic") && "italic", marks.includes("underline") && "underline")}>{title || "Notification title"}</p><p className={cn("mt-1 line-clamp-2 text-sm text-slate-200", marks.includes("bold") && "font-bold")}>{message || "Message preview will appear here."}</p></div></div>{imageUrl && (style === "BIG_PICTURE" || style === "ACTION") ? <img alt="Big picture preview" className="mt-3 aspect-[16/8] w-full rounded-xl object-cover" src={imageUrl} /> : null}{style === "BIG_TEXT" ? <p className="mt-3 whitespace-pre-wrap text-sm text-slate-200">{message || "Expanded text preview"}</p> : null}{style === "ACTION" ? <button className="mt-3 text-xs font-bold uppercase text-orange-300" type="button">{permittedActions.find(([value]) => value === actionType)?.[1] ?? "Open app"}</button> : null}</div>
             <p className="mt-4 text-xs text-[var(--muted)]">{scheduledAt ? `Scheduled ${scheduledAt}` : "Send immediately"} · Device and Android version control the final layout.</p>
           </div>
-          <h4 className="mt-5 font-semibold">Delivery history</h4>
+          <div className="mt-5 flex items-center justify-between gap-3"><h4 className="font-semibold">Delivery history</h4><button className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-white px-3 text-xs font-semibold text-[var(--foreground)] hover:border-orange-300 hover:bg-orange-50 disabled:opacity-50" disabled={loading} onClick={onRefresh} type="button"><RotateCcw size={14} /> Refresh</button></div>
           <div className="mt-3 space-y-2">
             {campaigns.map((item) => (
               <div key={item.id} className="rounded-2xl border border-[var(--panel-border)] p-3 text-sm">
@@ -6134,7 +6146,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted)]">Created by {item.createdByName ?? "Administrator"}</p>
                 {item.error ? <p className="mt-2 text-xs font-semibold text-rose-700">{item.error}</p> : null}
-                <button className="mt-2 text-xs font-bold text-orange-700 hover:underline" onClick={() => useCampaign(item)} type="button">Reuse as draft</button>
+                <button className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-800 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600" onClick={() => useCampaign(item)} type="button"><Copy size={15} /> Reuse as draft</button>
               </div>
             ))}
             {loading ? <LoadingState label="Loading campaign history..." /> : null}
