@@ -2871,6 +2871,34 @@ function HomeScreen({
           </Pressable>
         </View>
 
+        <View style={styles.homeOffersFeatured}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.homeOffersEyebrow}>LIMITED TIME</Text>
+              <Text style={styles.listTitle}>Offers for you</Text>
+            </View>
+            <Pressable onPress={() => setScreen("coupons")}><Text style={styles.seeAll}>See all</Text></Pressable>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.offerRow}>
+            {activeCoupons.length ? activeCoupons.map((coupon) => (
+              <Pressable key={coupon.code} style={styles.offerCard} onPress={() => setScreen("coupons")}>
+                <Image source={offersBenefitsImage} style={styles.offerImage} resizeMode="cover" />
+                <View style={styles.offerCardBody}>
+                  <Text style={styles.offerTitle}>{couponDiscountLabel(coupon)}</Text>
+                  <Text style={styles.offerCopy} numberOfLines={2}>{coupon.description || coupon.code}</Text>
+                  <Text style={styles.offerCode}>Use code: {coupon.code}</Text>
+                </View>
+              </Pressable>
+            )) : (
+              <Pressable style={styles.offerCardWide} onPress={() => setScreen("coupons")}>
+                <Image source={offersBenefitsImage} style={styles.offerWideImage} resizeMode="cover" />
+                <View style={styles.profileRowText}><Text style={styles.offerTitle}>Discover Darji offers</Text><Text style={styles.offerCopy}>Tap to see current coupons and benefits.</Text></View>
+                <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+              </Pressable>
+            )}
+          </ScrollView>
+        </View>
+
         <Pressable style={[styles.homeOrderPreview, diwaliActive && styles.festivalCard, diwaliActive && { borderColor: festivalTheme.palette.accent }]} onPress={() => activeOrder ? setScreen("orders") : onStartRequest()}>
           {diwaliActive ? <DiwaliCardCorner placement="right" /> : null}
           <View>
@@ -4175,7 +4203,7 @@ function NewRequestScreen({
         <TextInput
           multiline
           style={styles.descriptionInput}
-          placeholder="e.g. Need to shorten the sleeves of my shirt by 2 cm and take in the sides a little."
+          placeholder="Describe the clothes and the work you want done (for example: shorten my kurta sleeves or add embroidery to this dress)."
           placeholderTextColor="#98a4b6"
           value={draft.description}
           onChangeText={(description) => setDraft({ ...draft, description })}
@@ -14114,6 +14142,8 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   rateHomeCard: { minHeight: 72, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 12, marginBottom: 16 },
   rateHomeIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   homeInsightGrid: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 12 },
+  homeOffersFeatured: { marginTop: 18, marginBottom: 4 },
+  homeOffersEyebrow: { color: BRAND_ORANGE, fontSize: 9, fontWeight: "900", letterSpacing: 1.1, marginBottom: 3 },
   homeInsightCard: { flex: 1, minHeight: 104, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, justifyContent: "center" },
   homeInsightValue: { color: text, fontSize: 15, fontWeight: "900", marginTop: 10, marginBottom: 5 },
   mediaFeatureRow: { gap: 12, paddingBottom: 4, marginBottom: 18 },

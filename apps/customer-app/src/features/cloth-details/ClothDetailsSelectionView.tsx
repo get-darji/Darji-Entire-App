@@ -100,21 +100,14 @@ export function ClothDetailsSelectionView({
       <View style={styles.gridRow}>
         {GENDER_FIT_OPTIONS.map((option) => {
           const isSelected = gender === option.value;
-          const imageSource = getClothDetailsAsset("fit", option.value);
+          const fitIcon = option.value === "Men" ? "male-outline" : option.value === "Women" ? "female-outline" : "people-outline";
 
           return (
-            <VisualSelectionCard
-              key={option.value}
-              title={option.label}
-              image={imageSource}
-              selected={isSelected}
-              multiSelect={false}
-              onPress={() => onSelectGender(option.value)}
-              showExplanation={true}
-              onWatchExplanation={() =>
-                handleOpenExplanation(option.value, "fit", option.label)
-              }
-            />
+            <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: isSelected }} style={[styles.fitOption, isSelected && styles.fitOptionSelected]} onPress={() => onSelectGender(option.value)}>
+              <Ionicons name={fitIcon as keyof typeof Ionicons.glyphMap} size={18} color={isSelected ? BRAND_ORANGE : MUTED_TEXT} />
+              <Text numberOfLines={1} style={[styles.fitOptionText, isSelected && styles.fitOptionTextSelected]}>{option.label}</Text>
+              {isSelected ? <Ionicons name="checkmark-circle" size={15} color={BRAND_ORANGE} /> : null}
+            </Pressable>
           );
         })}
       </View>
@@ -421,6 +414,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10
   },
+  fitOption: { minHeight: 42, flexGrow: 1, flexBasis: "30%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 9, borderRadius: 10, borderWidth: 1, borderColor: BORDER_COLOR, backgroundColor: SURFACE_BG },
+  fitOptionSelected: { borderColor: BRAND_ORANGE, backgroundColor: SURFACE_ALT },
+  fitOptionText: { color: MUTED_TEXT, fontSize: 11, fontWeight: "800" },
+  fitOptionTextSelected: { color: NAVY_TEXT },
   categoryList: {
     gap: 8
   },
