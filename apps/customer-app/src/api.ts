@@ -75,6 +75,21 @@ export async function getFestivalTheme() {
   }
 }
 
+export type PromotionalBanner = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  altText: string;
+  priority: number;
+  category: "GENERAL" | "FESTIVAL" | "OFFER" | "ANNOUNCEMENT";
+  actionType: "NONE" | "SCREEN" | "COUPONS" | "TAILORING_REQUEST" | "EXTERNAL_URL" | "CONTACT";
+  actionDestination?: string;
+};
+
+export function getPromotionalBanners() {
+  return api<PromotionalBanner[]>("/promotional-banners", {}, undefined);
+}
+
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), path === "/auth/request-otp" || path === "/auth/verify-otp" ? 30000 : REQUEST_TIMEOUT_MS);

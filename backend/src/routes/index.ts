@@ -134,6 +134,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { auditAdminMutation } from "../middleware/admin-audit.js";
 import { notificationRoutes } from "./notificationRoutes.js";
+import { createPromotionalBannerController, deletePromotionalBannerController, listAdminPromotionalBannersController, listEligiblePromotionalBannersController, reorderPromotionalBannersController, updatePromotionalBannerController, uploadPromotionalBannerImage, uploadPromotionalBannerImageController } from "../controllers/promotional-banner.controller.js";
 import { pushRuntimeStatus } from "../services/push.service.js";
 import { translateController } from "../controllers/translation.controller.js";
 import {
@@ -210,6 +211,7 @@ router.get("/health", (_req, res) => res.json({
 }));
 router.get("/platform-status", platformStatusController);
 router.get("/festival-theme", festivalThemeController);
+router.get("/promotional-banners", listEligiblePromotionalBannersController);
 router.get("/service-availability", serviceAvailabilityController);
 router.get("/location/geocode", requireAuth, forwardGeocodeController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
@@ -374,6 +376,12 @@ router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_AD
 router.delete("/admin/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.put("/admin/platform-status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePlatformStatusController);
 router.put("/admin/festival-theme", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateFestivalThemeController);
+router.get("/admin/promotional-banners", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminPromotionalBannersController);
+router.post("/admin/promotional-banners/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), uploadPromotionalBannerImage, uploadPromotionalBannerImageController);
+router.post("/admin/promotional-banners", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), createPromotionalBannerController);
+router.put("/admin/promotional-banners/reorder", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reorderPromotionalBannersController);
+router.put("/admin/promotional-banners/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePromotionalBannerController);
+router.delete("/admin/promotional-banners/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deletePromotionalBannerController);
 router.get("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), serviceAreaConfigController);
 router.put("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateServiceAreaConfigController);
 router.get("/admin/service-area-interests", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listServiceAreaInterestsController);

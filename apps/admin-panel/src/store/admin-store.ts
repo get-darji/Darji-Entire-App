@@ -18,6 +18,7 @@ export type SectionId =
   | "users"
   | "payments"
   | "coupons"
+  | "promotional-banners"
   | "support"
   | "reviews"
   | "notifications"

@@ -254,6 +254,7 @@ import {
 import { getCustomerFallbackAvatarUrl, getDefaultAvatarUrl } from "@/src/lib/avatar";
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
 import SupportCommandCenter from "./support-command-center";
+import { PromotionalBannerManager } from "./promotional-banner-manager";
 import type {
   AdminAccess,
   AdminUser,
@@ -507,6 +508,7 @@ const sidebarSections: SidebarSection[] = [
   { id: "users", icon: UserCircle2, label: "Customers", description: "Customer accounts and access control" },
   { id: "payments", icon: CreditCard, label: "Payments", description: "Collections and payment state" },
   { id: "coupons", icon: Ticket, label: "Coupons", description: "Offers and retention levers" },
+  { id: "promotional-banners", icon: ImageIcon, label: "Promotional Banners", description: "Customer home carousel" },
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
   { id: "reviews", icon: MessageSquareText, label: "Reviews", description: "Customer and tailor reviews management" },
   { id: "notifications", icon: Send, label: "Notifications", description: "Push, SMS, email and in-app campaigns" },
@@ -524,7 +526,7 @@ const sidebarGroups: Array<{ label: string; sections: SectionId[] }> = [
   { label: "Overview", sections: ["dashboard", "alerts"] },
   { label: "Operations", sections: ["orders", "tailoring", "delivery", "batches", "measurements"] },
   { label: "People", sections: ["users", "tailors", "partners", "samples"] },
-  { label: "Money", sections: ["payments", "coupons", "exports"] },
+  { label: "Money", sections: ["payments", "coupons", "promotional-banners", "exports"] },
   { label: "Engagement", sections: ["support", "reviews", "notifications", "otp"] },
   { label: "Administration", sections: ["activity", "roles", "health", "platform", "website", "settings"] }
 ];
@@ -3574,6 +3576,7 @@ export function AdminPortal() {
             />
           </div>
         ) : null}
+        {activeSection === "promotional-banners" ? <PromotionalBannerManager /> : null}
         {activeSection === "support" ? (
           <SupportCommandCenter
             tickets={tickets}

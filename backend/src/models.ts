@@ -1092,6 +1092,28 @@ const settingSchema = new Schema(
   baseOptions
 );
 
+const promotionalBannerSchema = new Schema(
+  {
+    _id: stringId,
+    title: { type: String, required: true, trim: true, maxlength: 120 },
+    imageUrl: { type: String, required: true, trim: true },
+    imagePublicId: { type: String, default: "" },
+    altText: { type: String, required: true, trim: true, maxlength: 240 },
+    active: { type: Boolean, default: false, index: true },
+    priority: { type: Number, required: true, min: 1, default: 1, index: true },
+    category: { type: String, enum: ["GENERAL", "FESTIVAL", "OFFER", "ANNOUNCEMENT"], default: "GENERAL", index: true },
+    actionType: { type: String, enum: ["NONE", "SCREEN", "COUPONS", "TAILORING_REQUEST", "EXTERNAL_URL", "CONTACT"], default: "NONE" },
+    actionDestination: { type: String, default: "" },
+    startsAt: { type: Date, default: null, index: true },
+    expiresAt: { type: Date, default: null, index: true },
+    requiredFestivalMode: { type: String, default: "", index: true },
+    createdBy: { type: String, default: "" },
+    updatedBy: { type: String, default: "" }
+  },
+  baseOptions
+);
+promotionalBannerSchema.index({ active:  1, priority: 1, startsAt: 1, expiresAt: 1 });
+
 const marketingSignupSchema = new Schema(
   {
     _id: stringId,
@@ -1252,6 +1274,7 @@ export const TailorQuoteModel = mongoose.model("TailorQuote", tailorQuoteSchema)
 export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryRequestSchema, "delivery_tasks");
 export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchSchema, "delivery_batches");
 export const SettingModel = mongoose.model("Setting", settingSchema);
+export const PromotionalBannerModel = mongoose.model("PromotionalBanner", promotionalBannerSchema, "promotional_banners");
 export const MarketingSignupModel = mongoose.model("MarketingSignup", marketingSignupSchema, "marketing_signups");
 export const ServiceAreaInterestModel = mongoose.model("ServiceAreaInterest", serviceAreaInterestSchema, "service_area_interests");
 export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");

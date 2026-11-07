@@ -684,6 +684,23 @@ export async function updateFestivalTheme(payload: FestivalThemeConfig) {
   return unwrap<FestivalThemeState>(api.put("/admin/festival-theme", payload));
 }
 
+export type PromotionalBannerRecord = {
+  id: string; title: string; imageUrl: string; imagePublicId?: string; altText: string; active: boolean; priority: number;
+  category: "GENERAL" | "FESTIVAL" | "OFFER" | "ANNOUNCEMENT";
+  actionType: "NONE" | "SCREEN" | "COUPONS" | "TAILORING_REQUEST" | "EXTERNAL_URL" | "CONTACT";
+  actionDestination: string; startsAt?: string | null; expiresAt?: string | null; requiredFestivalMode?: string; status: "ACTIVE" | "INACTIVE" | "SCHEDULED" | "EXPIRED";
+};
+export type PromotionalBannerInput = Omit<PromotionalBannerRecord, "id" | "status">;
+export async function listPromotionalBanners() { return unwrap<PromotionalBannerRecord[]>(api.get("/admin/promotional-banners")); }
+export async function createPromotionalBanner(value: PromotionalBannerInput) { return unwrap<PromotionalBannerRecord>(api.post("/admin/promotional-banners", value)); }
+export async function savePromotionalBanner(value: PromotionalBannerInput & { id: string }) { const { id, ...body } = value; return unwrap<PromotionalBannerRecord>(api.put(`/admin/promotional-banners/${id}`, body)); }
+export async function removePromotionalBanner(id: string) { return unwrap<{ success: boolean }>(api.delete(`/admin/promotional-banners/${id}`)); }
+export async function reorderPromotionalBanners(ids: string[]) { return unwrap<PromotionalBannerRecord[]>(api.put("/admin/promotional-banners/reorder", { ids })); }
+export async function uploadPromotionalBannerImage(file: File) {
+  const form = new FormData(); form.append("media", file);
+  return unwrap<{ url: string; publicId: string; bytes: number; format: string; originalName: string; width: number; height: number }>(api.post("/admin/promotional-banners/media", form, { headers: { "Content-Type": "multipart/form-data" } }));
+}
+
 export async function assignOrder(payload: { orderId: string; tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {
   const { orderId, ...body } = payload;
   return unwrap<Order>(api.patch(`/orders/${orderId}/assign`, body));

@@ -43,7 +43,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, getFestivalTheme, getPlatformStatus, refreshAccessToken, savePreferredLanguage, translateDynamicText, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getFestivalTheme, getPlatformStatus, getPromotionalBanners, refreshAccessToken, savePreferredLanguage, translateDynamicText, uploadMedia, type PromotionalBanner, type UploadedMedia } from "./src/api";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 // Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
@@ -2730,6 +2730,49 @@ function LegacyHomeScreen({
   );
 }
 
+function PromotionalBannerCarousel({ banners, activeIndex, onIndexChange, festivalTheme, onPress }: {
+  banners: PromotionalBanner[];
+  activeIndex: number;
+  onIndexChange: (index: number) => void;
+  festivalTheme: FestivalThemeState;
+  onPress: (banner: PromotionalBanner) => void;
+}) {
+  const { width: screenWidth } = useWindowDimensions();
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const margin = festivalTheme.active && festivalTheme.themeId === "diwali" ? 18 : 20;
+  const cardWidth = Math.max(220, screenWidth - margin * 2 - (festivalTheme.active && festivalTheme.themeId === "diwali" ? 6 : 0));
+  const diwaliActive = festivalTheme.active && festivalTheme.themeId === "diwali";
+  const scrollRef = useRef<RNScrollView>(null);
+  useEffect(() => { scrollRef.current?.scrollTo({ x: activeIndex * cardWidth, animated: false }); }, [activeIndex, cardWidth]);
+  return (
+    <View style={{ marginBottom: 16, borderRadius: 20, borderWidth: diwaliActive ? 1 : 0, borderColor: diwaliActive ? festivalTheme.palette.accent : "transparent", padding: diwaliActive ? 3 : 0, backgroundColor: diwaliActive ? "#FFFCF5" : "transparent" }}>
+      <RNScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        snapToInterval={cardWidth}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(event) => onIndexChange(Math.max(0, Math.min(banners.length - 1, Math.round(event.nativeEvent.contentOffset.x / cardWidth))))}
+      >
+        {banners.map((banner) => (
+          <Pressable key={banner.id} accessibilityRole="button" accessibilityLabel={banner.altText || banner.title} onPress={() => onPress(banner)} style={{ width: cardWidth, aspectRatio: 2.5, borderRadius: 17, overflow: "hidden", backgroundColor: diwaliActive ? "#FFF7E8" : "#f1f5f9" }}>
+            {failedImages[banner.id] ? <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#64748b", fontSize: 12 }}>Offer image unavailable</Text></View> : <Image source={{ uri: banner.imageUrl }} accessibilityLabel={banner.altText} onError={() => setFailedImages((current) => ({ ...current, [banner.id]: true }))} resizeMode="contain" style={{ width: "100%", height: "100%" }} />}
+          </Pressable>
+        ))}
+      </RNScrollView>
+      {banners.length > 1 ? (
+        <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: 8 }} accessibilityLabel={`Banner ${activeIndex + 1} of ${banners.length}`}>
+          {banners.map((banner, index) => (
+            <Pressable key={banner.id} accessibilityRole="button" accessibilityLabel={`Show banner ${index + 1}`} onPress={() => { onIndexChange(index); scrollRef.current?.scrollTo({ x: index * cardWidth, animated: true }); }} style={{ width: index === activeIndex ? 16 : 6, height: 6, borderRadius: 4, backgroundColor: index === activeIndex ? (diwaliActive ? festivalTheme.palette.accent : BRAND_ORANGE) : (diwaliActive ? "#e8d8b7" : "#cbd5e1") }} />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function HomeScreen({
   setScreen,
   onStartRequest,
@@ -2758,6 +2801,8 @@ function HomeScreen({
   const { refreshSignal } = useContext(PullToRefreshContext);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [featuredStories, setFeaturedStories] = useState<CustomerStory[]>([]);
+  const [promotionalBanners, setPromotionalBanners] = useState<PromotionalBanner[]>([]);
+  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const language = useAppStore((state) => state.language);
   const diwaliActive = festivalTheme.active && festivalTheme.themeId === "diwali";
@@ -2775,6 +2820,7 @@ function HomeScreen({
   const stories = featuredStories;
 
   const loadHomeExtras = useCallback(() => {
+    void getPromotionalBanners().then((banners) => { setPromotionalBanners(banners); setActiveBannerIndex(0); }).catch(() => setPromotionalBanners([]));
     if (!token) return;
     void api<Coupon[]>("/coupons", {}, token).then(setCoupons).catch(() => setCoupons([]));
     void api<CustomerStory[]>("/reviews/featured").then(setFeaturedStories).catch(() => setFeaturedStories([]));
@@ -2787,6 +2833,11 @@ function HomeScreen({
   useEffect(() => {
     if (refreshSignal > 0) loadHomeExtras();
   }, [loadHomeExtras, refreshSignal]);
+
+  useEffect(() => {
+    const listener = AppState.addEventListener("change", (state) => { if (state === "active") loadHomeExtras(); });
+    return () => listener.remove();
+  }, [loadHomeExtras]);
 
   useEffect(() => {
     if (!diwaliActive) return;
@@ -2859,6 +2910,24 @@ function HomeScreen({
           </View>
           <Ionicons name="chevron-forward" size={18} color="#6b7890" />
         </Pressable>
+
+        {promotionalBanners.length > 0 ? (
+          <PromotionalBannerCarousel
+            banners={promotionalBanners}
+            activeIndex={activeBannerIndex}
+            onIndexChange={setActiveBannerIndex}
+            festivalTheme={festivalTheme}
+            onPress={(banner) => {
+              if (banner.actionType === "COUPONS") setScreen("coupons");
+              else if (banner.actionType === "TAILORING_REQUEST") onStartRequest();
+              else if (banner.actionType === "CONTACT") setScreen("contactSupport");
+              else if (banner.actionType === "SCREEN" && banner.actionDestination) setScreen(banner.actionDestination as Screen);
+              else if (banner.actionType === "EXTERNAL_URL" && /^https:\/\//i.test(banner.actionDestination ?? "")) {
+                void Linking.openURL(banner.actionDestination!).catch(() => Alert.alert("Link unavailable", "This offer link could not be opened."));
+              }
+            }}
+          />
+        ) : null}
 
         <View style={[styles.featureCard, diwaliActive && styles.festivalFeatureCard, diwaliActive && { backgroundColor: festivalTheme.palette.hero, borderColor: festivalTheme.palette.accent }]}>
           {diwaliActive ? <DiwaliHeroDecor motion={diwaliMotion} /> : <View style={styles.featureOrb} />}
