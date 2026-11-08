@@ -6002,6 +6002,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
 }) {
   const [target, setTarget] = useState("everyone");
   const [targetUserId, setTargetUserId] = useState("");
+  const [recipientSearch, setRecipientSearch] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -6018,6 +6019,13 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
   const [actionEntityId, setActionEntityId] = useState("");
   const [deliveryError, setDeliveryError] = useState("");
   const selectedPeople = target === "customer" ? customers : target === "tailor" ? tailors : target === "delivery_partner" ? partners : [];
+  const recipientOptions = selectedPeople.map((person) => {
+    const id = "userId" in person ? person.userId : person.id;
+    const name = ("name" in person ? person.name : "") || ("user" in person ? person.user?.name : "") || ("shopName" in person ? person.shopName : "Partner");
+    const contact = ("phone" in person ? person.phone : undefined) || ("darjiTailorId" in person ? person.darjiTailorId : undefined) || ("darjiPartnerId" in person ? person.darjiPartnerId : undefined) || id;
+    return { id, label: `${name || "Partner"} - ${contact}`, searchText: `${name ?? ""} ${contact ?? ""} ${id}`.toLowerCase() };
+  });
+  const filteredRecipientOptions = recipientOptions.filter((person) => person.searchText.includes(recipientSearch.trim().toLowerCase()));
   const isSingleTarget = ["customer", "tailor", "delivery_partner"].includes(target);
   const permittedActions = target === "tailors" || target === "tailor"
     ? [["OPEN_APP", "Open app"], ["VIEW_ASSIGNED_WORK", "View assigned work"], ["VIEW_MEASUREMENT_VISIT", "View measurement visit"], ["VIEW_TAILORING_REQUEST", "View tailoring request"]]
@@ -6096,10 +6104,16 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
             </Field>
           </div>
           {isSingleTarget ? <div className="mt-4"><Field label="Recipient">
-            <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)}>
-              <option value="">Choose a recipient</option>
-              {selectedPeople.map((person) => <option key={person.id} value={"userId" in person ? person.userId : person.id}>{("name" in person ? person.name : "") || ("user" in person ? person.user?.name : "") || ("shopName" in person ? person.shopName : "Partner")} - {"phone" in person ? person.phone : "darjiTailorId" in person ? person.darjiTailorId : "darjiPartnerId" in person ? person.darjiPartnerId : person.id}</option>)}
-            </select>
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} />
+                <input aria-label="Search recipients" autoComplete="off" className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] pl-11 pr-4 text-[var(--foreground)] outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100" onChange={(event) => setRecipientSearch(event.target.value)} placeholder={`Search ${target === "customer" ? "customers" : target === "tailor" ? "tailors" : "delivery partners"} by name, phone, or ID`} value={recipientSearch} />
+              </div>
+              <div aria-label="Recipient results" className="max-h-56 overflow-y-auto rounded-2xl border border-[var(--panel-border)] bg-white p-1" role="listbox">
+                {filteredRecipientOptions.length ? filteredRecipientOptions.map((person) => <button aria-selected={targetUserId === person.id} className={cn("block w-full rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-orange-50", targetUserId === person.id ? "bg-orange-50 font-semibold text-orange-900" : "text-[var(--foreground)]")} key={person.id} onClick={() => { setTargetUserId(person.id); setRecipientSearch(""); }} role="option" type="button">{person.label}</button>) : <p className="px-3 py-4 text-center text-sm text-[var(--muted)]">No matching recipients</p>}
+              </div>
+              {targetUserId ? <p className="text-xs text-[var(--muted)]">Selected: {recipientOptions.find((person) => person.id === targetUserId)?.label ?? "Recipient"}</p> : <p className="text-xs text-[var(--muted)]">Choose a recipient from the search results.</p>}
+            </div>
           </Field></div> : null}
           <div className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2"><Field label="Category"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={category} onChange={(event) => setCategory(event.target.value as typeof category)}>{[["GENERAL_ANNOUNCEMENT", "General announcement"], ["ORDER_UPDATE", "Order update"], ["TAILORING_UPDATE", "Tailoring update"], ["DELIVERY_UPDATE", "Delivery update"], ["PAYMENT_UPDATE", "Payment update"], ["PROMOTIONAL", "Promotional"], ["CUSTOM", "Custom"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="Style"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={style} onChange={(event) => setStyle(event.target.value as typeof style)}>{[["STANDARD", "Standard"], ["BIG_TEXT", "Expanded text"], ["LARGE_ICON", "Large icon"], ["BIG_PICTURE", "Big picture"], ["ACTION", "Action notification"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
