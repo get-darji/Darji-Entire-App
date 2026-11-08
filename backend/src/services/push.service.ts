@@ -218,7 +218,7 @@ export async function removeDeviceTokens(
 }
 
 async function sendExpoPushNotifications(tokens: string[], payload: PushPayload, data: Record<string, string>) {
-  if (!tokens.length) return { successCount: 0, failureCount: 0 };
+  if (!tokens.length) return { successCount: 0, failureCount: 0, error: undefined as string | undefined };
   const messages = tokens.map((to) => ({
     to,
     title: payload.title,
@@ -233,24 +233,45 @@ async function sendExpoPushNotifications(tokens: string[], payload: PushPayload,
     mutableContent: Boolean(payload.imageUrl),
     richContent: payload.imageUrl ? { image: payload.imageUrl } : undefined
   }));
-  const response = await fetch("https://exp.host/--/api/v2/push/send", {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Accept-Encoding": "gzip, deflate",
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(messages)
-  });
-  if (!response.ok) throw new Error(`Expo push service returned ${response.status}`);
-  const result = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
-  const tickets = result.data ?? [];
-  const invalidTokens = tickets.flatMap((ticket, index) => ticket.details?.error === "DeviceNotRegistered" ? [tokens[index]] : []);
-  if (invalidTokens.length) {
-    await UserModel.updateMany({}, { $pull: { expoPushTokens: { token: { $in: invalidTokens } } } });
+  const result = { successCount: 0, failureCount: 0, errors: [] as string[] };
+  for (let offset = 0; offset < messages.length; offset += 100) {
+    const batch = messages.slice(offset, offset + 100);
+    const batchTokens = tokens.slice(offset, offset + 100);
+    try {
+      const response = await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "gzip, deflate",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(batch)
+      });
+      const responseText = await response.text();
+      let payloadResult: { data?: Array<{ status?: string; message?: string; details?: { error?: string } }>; errors?: Array<{ code?: string; message?: string }> } = {};
+      try { payloadResult = JSON.parse(responseText) as typeof payloadResult; } catch { /* retain the response text in the error below */ }
+      if (!response.ok) {
+        const detail = payloadResult.errors?.map((item) => [item.code, item.message].filter(Boolean).join(": ")).filter(Boolean).join("; ") || responseText.slice(0, 300);
+        result.failureCount += batch.length;
+        result.errors.push(`Expo push service returned ${response.status}${detail ? `: ${detail}` : ""}`);
+        continue;
+      }
+      const tickets = payloadResult.data ?? [];
+      const invalidTokens = tickets.flatMap((ticket, index) => ticket.details?.error === "DeviceNotRegistered" ? [batchTokens[index]] : []);
+      if (invalidTokens.length) {
+        await UserModel.updateMany({}, { $pull: { expoPushTokens: { token: { $in: invalidTokens } } } });
+      }
+      const accepted = tickets.filter((ticket) => ticket.status === "ok").length;
+      result.successCount += accepted;
+      result.failureCount += batch.length - accepted;
+      const ticketErrors = [...new Set(tickets.filter((ticket) => ticket.status !== "ok").map((ticket) => ticket.message || ticket.details?.error).filter(Boolean))];
+      if (ticketErrors.length) result.errors.push(`Expo ticket error: ${ticketErrors.join(", ")}`);
+    } catch (error) {
+      result.failureCount += batch.length;
+      result.errors.push(error instanceof Error ? error.message : "Expo push provider request failed");
+    }
   }
-  const successCount = tickets.filter((ticket) => ticket.status === "ok").length;
-  return { successCount, failureCount: tokens.length - successCount };
+  return { successCount: result.successCount, failureCount: result.failureCount, error: [...new Set(result.errors)].join("; ") || undefined };
 }
 
 export async function sendPushToUsers(userIds: string[], payload: PushPayload): Promise<PushDeliveryResult> {
@@ -354,7 +375,15 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
           imageUrl: payload.imageUrl
         }
       } : {}),
-      data: rich ? { ...data, darjiRichNotification: "true", campaignId: data.campaignId || tag, imageUrl: payload.imageUrl ?? "" } : data,
+      data: rich ? {
+        ...Object.fromEntries(Object.entries(data).filter(([key]) => !["title", "body", "message"].includes(key))),
+        richTitle: payload.title,
+        richBodyText: payload.body,
+        darjiRichNotification: "true",
+        campaignId: data.campaignId || tag,
+        imageUrl: payload.imageUrl ?? "",
+        largeIconUrl: payload.largeIconUrl ?? ""
+      } : data,
       android: {
         priority: "high",
         ...(isIncomingRequest ? { ttl: 35_000, collapseKey: `incoming-${tag}` } : {}),
@@ -412,6 +441,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
       console.error("[Expo] Push delivery failed", error);
       return { successCount: 0, failureCount: expoTokens.length };
     });
+    if ("error" in expoResult && expoResult.error) providerErrors.push(expoResult.error);
     console.log(`[Push] build=${pushBuild} app=${targetApps.join(",") || "all"} incoming=${isIncomingRequest} fcmTokens=${tokens.length} expoTokens=${expoTokens.length} fcmSent=${result.successCount} fcmFailed=${result.failureCount} expoSent=${expoResult.successCount} expoFailed=${expoResult.failureCount} title="${payload.title}"`);
     return {
       requestedRecipientCount,
