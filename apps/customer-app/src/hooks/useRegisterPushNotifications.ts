@@ -25,12 +25,12 @@ function easProjectId() {
 
 export function useRegisterPushNotifications({ authToken, app, userId }: Options) {
   const [status, setStatus] = useState<RegistrationState>("idle");
-  const authTokenRef = useRef(authToken);
-  authTokenRef.current = authToken;
+  const latestOptionsRef = useRef({ authToken, app, userId });
+  latestOptionsRef.current = { authToken, app, userId };
   const isAuthenticated = Boolean(authToken);
 
   useEffect(() => {
-    const registrationAuthToken = authTokenRef.current;
+    const registrationAuthToken = authToken;
     if (!isAuthenticated || !registrationAuthToken || !userId || Platform.OS === "web" || (Platform.OS === "android" && isRunningInExpoGo())) {
       setStatus("idle");
       return;
@@ -95,7 +95,9 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
         await registration;
         completedRegistrations.add(registrationKey);
         await AsyncStorage.setItem(storageKey, registrationKey);
-        if (cancelled) await unregisterTokens(registeredTokens);
+        const latestOptions = latestOptionsRef.current;
+        const registrationStillNeeded = latestOptions.authToken && latestOptions.app === app && latestOptions.userId === userId;
+        if (cancelled && !registrationStillNeeded) await unregisterTokens(registeredTokens);
       } finally {
         pendingRegistrations.delete(registrationKey);
       }
@@ -126,9 +128,11 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     void register();
     return () => {
       cancelled = true;
-      void unregisterTokens(registeredTokens);
+      const latestOptions = latestOptionsRef.current;
+      const registrationStillNeeded = latestOptions.authToken && latestOptions.app === app && latestOptions.userId === userId;
+      if (!registrationStillNeeded) void unregisterTokens(registeredTokens);
     };
-  }, [app, isAuthenticated, userId]);
+  }, [app, authToken, isAuthenticated, userId]);
 
   return status;
 }
