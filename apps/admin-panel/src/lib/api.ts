@@ -154,7 +154,21 @@ async function unwrap<T>(request: Promise<{ data: ApiEnvelope<T> }>) {
 
 export function extractError(error: unknown) {
   if (axios.isAxiosError(error)) {
-    return String(error.response?.data?.message ?? error.message ?? "Request failed");
+    const responseData = error.response?.data as {
+      message?: unknown;
+      issues?: { formErrors?: unknown[]; fieldErrors?: Record<string, unknown[]> };
+    } | undefined;
+    const message = String(responseData?.message ?? error.message ?? "Request failed");
+    if (message === "Validation failed" && responseData?.issues) {
+      const details = [
+        ...(responseData.issues.formErrors ?? []).map((issue) => String(issue)),
+        ...Object.entries(responseData.issues.fieldErrors ?? {}).flatMap(([field, issues]) =>
+          (issues ?? []).map((issue) => `${field}: ${String(issue)}`)
+        )
+      ].filter(Boolean);
+      if (details.length) return `${message}: ${details.join("; ")}`;
+    }
+    return message;
   }
   return error instanceof Error ? error.message : "Request failed";
 }
