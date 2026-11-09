@@ -454,6 +454,11 @@ export async function updateAdminOrderQuote(payload: { orderId: string; quoteId:
   return unwrap<TailorQuote>(api.patch(`/admin/orders/${orderId}/quotes/${quoteId}`, body));
 }
 
+export async function updateAdminOrderPricing(payload: { orderId: string; quoteAmount?: number; deliveryFee?: number }) {
+  const { orderId, ...body } = payload;
+  return unwrap<{ id: string; quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; totalAmount: number }>(api.patch(`/admin/orders/${orderId}/pricing`, body));
+}
+
 export type AdminAssignmentCandidate<T extends TailorProfile | DeliveryPartnerProfile> = {
   profile: T;
   distanceMeters: number | null;

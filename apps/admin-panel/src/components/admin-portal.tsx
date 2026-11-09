@@ -215,6 +215,7 @@ import {
   permanentlyDeleteAdminOrder,
   getAdminOrderQuotes,
   updateAdminOrderQuote,
+  updateAdminOrderPricing,
   getAdminAssignmentCandidates,
   reportAdminOrderIssue,
   updateAdminTailorProfile,
@@ -761,6 +762,7 @@ export function AdminPortal() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [ticketDetail?.messages, activeBugReport?.messages, activeChangeRequest?.messages]);
   const [assignOrderTarget, setAssignOrderTarget] = useState<Order | null>(null);
+  const [orderPricingTarget, setOrderPricingTarget] = useState<Order | null>(null);
   const [assignTailorId, setAssignTailorId] = useState("");
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
   const [assignDeliveryPartnerId, setAssignDeliveryPartnerId] = useState("");
@@ -1491,6 +1493,27 @@ export function AdminPortal() {
       }));
       await queryClient.invalidateQueries({ queryKey: ["admin", "order-metadata"] });
       await queryClient.invalidateQueries({ queryKey: ["admin", "activity-logs"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const orderPricingMutation = useMutation({
+    mutationFn: updateAdminOrderPricing,
+    onSuccess: async (pricing) => {
+      setOrderPricingTarget(null);
+      setOrderDetail((current) => current?.id === pricing.id ? {
+        ...current,
+        subtotal: pricing.quoteAmount,
+        deliveryFee: pricing.deliveryFee,
+        platformFee: pricing.platformFee,
+        smallOrderFee: pricing.smallOrderFee,
+        homeMeasurementFee: pricing.homeMeasurementFee,
+        discount: pricing.discount,
+        totalAmount: pricing.totalAmount,
+        ...(current.request ? { request: { ...current.request, quoteAmount: pricing.quoteAmount, deliveryFee: pricing.deliveryFee, platformFee: pricing.platformFee, smallOrderFee: pricing.smallOrderFee, totalAmount: pricing.totalAmount } } : {})
+      } : current);
+      toast.success("Order pricing updated");
+      await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -3851,6 +3874,7 @@ export function AdminPortal() {
         me={me}
         notes={orderDetail ? orderNotes[orderDetail.id] ?? [] : []}
         onAssign={() => orderDetail && openOrderAssignment(orderDetail)}
+        onEditPricing={() => orderDetail && setOrderPricingTarget(orderDetail)}
         onAddNote={(note) => {
           if (!orderDetail) return;
           orderMetadataMutation.mutate({ orderId: orderDetail.id, note });
@@ -3903,6 +3927,13 @@ export function AdminPortal() {
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
+      />
+      <OrderPricingDialog
+        open={Boolean(orderPricingTarget)}
+        order={orderPricingTarget}
+        pending={orderPricingMutation.isPending}
+        onClose={() => setOrderPricingTarget(null)}
+        onSave={(values) => orderPricingTarget && orderPricingMutation.mutate({ orderId: orderPricingTarget.id, ...values })}
       />
       <PermanentDeleteOrderDialog
         open={Boolean(deleteOrderTarget)}
@@ -10991,6 +11022,7 @@ function OrderDetailDialog({
   me,
   notes,
   onAssign,
+  onEditPricing,
   onAddNote,
   onPriorityChange,
   onStatusChange,
@@ -11014,6 +11046,7 @@ function OrderDetailDialog({
   me: MeResponse;
   notes: AdminOrderNote[];
   onAssign: () => void;
+  onEditPricing: () => void;
   onAddNote: (note: string) => void;
   onPriorityChange: (priority: AdminOrderPriority) => void;
   onStatusChange: (status: string) => void;
@@ -11099,7 +11132,8 @@ function OrderDetailDialog({
                     <Dialog.Description className="mt-2 text-xs font-medium text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</Dialog.Description>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pr-11">
-                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onAssign}><PencilLine className="h-4 w-4" />Edit</ActionButton>
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onEditPricing}><PencilLine className="h-4 w-4" />Edit pricing</ActionButton>
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onAssign}><UserRoundPlus className="h-4 w-4" />Edit assignment</ActionButton>
                     <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onDownloadImages}><Download className="h-4 w-4" />Images ZIP</ActionButton>
                     <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onPrintInvoice}><Download className="h-4 w-4" />Download Invoice</ActionButton>
                   </div>
@@ -11605,6 +11639,65 @@ function VerificationRecordEditor({ json, onChange, documentsOnly = false }: { j
   }
   const fields = flattenEditableVerification(record, [], documentsOnly ? isDocumentRegistrationField : undefined);
   return <div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2">{fields.map((field) => <Field key={field.path.join(".")} label={field.label}>{typeof field.value === "boolean" ? <select className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3" value={field.value ? "true" : "false"} onChange={(event) => onChange(updateVerificationField(json, field, event.target.value === "true"))}><option value="true">Yes</option><option value="false">No</option></select> : <input className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3" type={typeof field.value === "number" ? "number" : "text"} value={field.value == null ? "" : String(field.value)} onChange={(event) => onChange(updateVerificationField(json, field, event.target.value))} />}</Field>)}</div>{!fields.length && !parseError ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No editable document or identity numbers were submitted.</p> : null}{parseError ? <p className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-700">{parseError}</p> : null}</div>;
+}
+
+function OrderPricingDialog({
+  open,
+  order,
+  pending,
+  onClose,
+  onSave
+}: {
+  open: boolean;
+  order: Order | null;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (values: { quoteAmount: number; deliveryFee: number }) => void;
+}) {
+  const [quoteAmount, setQuoteAmount] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
+  const isTailoring = Boolean(order?.request);
+  const alreadyPaid = String(order?.paymentStatus ?? "").toUpperCase() === "PAID";
+  const completed = ["DELIVERED", "COMPLETED", "CANCELLED"].includes(String(order?.status ?? "").toUpperCase());
+
+  useEffect(() => {
+    setQuoteAmount(String(order?.request?.quoteAmount ?? order?.subtotal ?? ""));
+    setDeliveryFee(String(order?.deliveryFee ?? "0"));
+  }, [order]);
+
+  const valid = quoteAmount.trim() !== "" && deliveryFee.trim() !== ""
+    && Number.isFinite(Number(quoteAmount)) && Number(quoteAmount) >= 0
+    && Number.isFinite(Number(deliveryFee)) && Number(deliveryFee) >= 0;
+
+  return (
+    <Dialog.Root onOpenChange={(next) => { if (!next) onClose(); }} open={open}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-[var(--panel-border)] bg-[#fffdfa] p-6 shadow-2xl">
+          <Dialog.Title className="text-xl font-bold text-[var(--deep)]">Edit order pricing</Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Update the {isTailoring ? "tailor quote" : "order subtotal"} and delivery charge. Fees and customer total are recalculated on save.</Dialog.Description>
+          {order ? <div className="mt-5 space-y-4">
+            <Field label={isTailoring ? "Tailor quote (₹)" : "Order subtotal (₹)"}>
+              <input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" min="0" step="0.01" type="number" value={quoteAmount} onChange={(event) => setQuoteAmount(event.target.value)} />
+            </Field>
+            <Field label="Delivery charge (₹)">
+              <input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" min="0" step="0.01" type="number" value={deliveryFee} onChange={(event) => setDeliveryFee(event.target.value)} />
+            </Field>
+            <div className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-[var(--muted)]">Current customer total</span><strong>{formatCurrency(order.totalAmount)}</strong></div>
+              <div className="mt-2 flex justify-between gap-3"><span className="text-[var(--muted)]">Payment status</span><strong>{formatStatus(order.paymentStatus)}</strong></div>
+              <p className="mt-3 text-xs text-[var(--muted)]">The total is recalculated with platform fee, small-order fee, measurement fee, and existing discount. Payment status follows the recorded payment.</p>
+            </div>
+            {alreadyPaid || completed ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Pricing is locked after payment or order completion.</p> : null}
+          </div> : null}
+          <div className="mt-6 flex justify-end gap-2">
+            <ActionButton disabled={pending} variant="secondary" onClick={onClose}>Cancel</ActionButton>
+            <ActionButton disabled={!order || !valid || pending || alreadyPaid || completed} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
 }
 
 function PaymentDetailDialog({ open, onOpenCustomer, onOpenOrder, payment, setOpen }: { open: boolean; onOpenCustomer: () => void; onOpenOrder: () => void; payment: Payment | null; setOpen: (open: boolean) => void }) {

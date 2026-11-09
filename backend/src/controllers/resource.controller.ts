@@ -10,6 +10,8 @@ import {
   customerWebsiteSliderSchema,
   normalizeCustomerWebsiteSlider,
   serviceCatalog,
+  getPlatformFee,
+  getSmallOrderFee,
   supportTicketSchema,
   bugReportSchema,
   accountChangeRequestSchema
@@ -3981,6 +3983,61 @@ export async function updateAdminOrderQuoteController(req: Request, res: Respons
   }
   const tailor = await TailorModel.findById(quote.tailorId);
   res.json({ data: { ...quote.toJSON(), tailor: tailor ? await withUser(tailor) : null } });
+}
+
+export async function updateAdminOrderPricingController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const input = z.object({
+    quoteAmount: z.coerce.number().finite().min(0).max(1_000_000).optional(),
+    deliveryFee: z.coerce.number().finite().min(0).max(100_000).optional()
+  }).refine((value) => Object.keys(value).length > 0, "Provide a quote or delivery charge").parse(req.body);
+  const value = entity.value;
+  const paymentStatus = String(value.paymentStatus ?? "PENDING").toUpperCase();
+  const terminalStatuses = ["COMPLETED", "CANCELLED", "DELIVERED"];
+  if (["PAID", "REFUNDED"].includes(paymentStatus) || terminalStatuses.includes(String(value.orderStatus ?? "").toUpperCase()) || terminalStatuses.includes(String(value.status ?? "").toUpperCase())) {
+    throw new AppError(409, "Pricing cannot be changed after payment or order completion");
+  }
+  const payments = await PaymentModel.find({ orderId: String(value.id ?? value._id) }).select("status providerRef").lean();
+  if (payments.some((payment) => String(payment.status).toUpperCase() === "PAID")) {
+    throw new AppError(409, "Pricing cannot be changed after payment succeeds");
+  }
+  if (payments.some((payment) => String(payment.status).toUpperCase() === "PENDING" && payment.providerRef)) {
+    throw new AppError(409, "Close or finish the active online payment link before changing pricing");
+  }
+
+  const quoteAmount = input.quoteAmount ?? Number(value.quoteAmount ?? value.subtotal ?? 0);
+  const deliveryFee = input.deliveryFee ?? Number(value.deliveryFee ?? 0);
+  const platformFee = getPlatformFee(quoteAmount);
+  const smallOrderFee = getSmallOrderFee(quoteAmount);
+  const homeMeasurementFee = Number(value.homeMeasurementFee ?? 0);
+  const discount = Number(value.discountAmount ?? value.discount ?? 0);
+  const totalAmount = Math.max(0, quoteAmount + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee - discount);
+
+  if (entity.kind === "TAILORING_REQUEST") {
+    const request = entity.document;
+    request.quoteAmount = quoteAmount;
+    request.deliveryFee = deliveryFee;
+    request.platformFee = platformFee;
+    request.smallOrderFee = smallOrderFee;
+    request.totalAmount = totalAmount;
+    await request.save();
+    if (request.selectedQuoteId) {
+      await TailorQuoteModel.updateOne({ _id: request.selectedQuoteId, requestId: request.id }, { $set: { price: quoteAmount } });
+    }
+    await PaymentModel.updateMany({ orderId: request.id, status: "PENDING", providerRef: { $exists: false } }, { $set: { amount: totalAmount } });
+    return res.json({ data: { id: request.id, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
+  }
+
+  const order = entity.document;
+  order.subtotal = quoteAmount;
+  order.deliveryFee = deliveryFee;
+  order.platformFee = platformFee;
+  order.smallOrderFee = smallOrderFee;
+  order.totalAmount = totalAmount;
+  await order.save();
+  await PaymentModel.updateMany({ orderId: order.id, status: "PENDING", providerRef: { $exists: false } }, { $set: { amount: totalAmount } });
+  return res.json({ data: { id: order.id, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
 }
 
 function addressText(address?: Record<string, any> | null) {

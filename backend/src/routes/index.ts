@@ -19,6 +19,7 @@ import {
   downloadAdminOrderInvoiceController,
   listAdminOrderQuotesController,
   updateAdminOrderQuoteController,
+  updateAdminOrderPricingController,
   listAdminAssignmentCandidatesController,
   reportAdminOrderIssueController,
   deleteAdminOrderController,
@@ -322,6 +323,7 @@ router.get("/admin/orders/:id/images.zip", requireAuth, requireRole("ADMIN", "SU
 router.get("/admin/orders/:id/invoice.pdf", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), downloadAdminOrderInvoiceController);
 router.get("/admin/orders/:id/quotes", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminOrderQuotesController);
 router.patch("/admin/orders/:id/quotes/:quoteId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderQuoteController);
+router.patch("/admin/orders/:id/pricing", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderPricingController);
 router.get("/admin/assignment-candidates", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminAssignmentCandidatesController);
 router.post("/admin/orders/:id/issues", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reportAdminOrderIssueController);
 router.delete("/admin/orders/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminOrderController);
