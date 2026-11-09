@@ -1127,7 +1127,7 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
 
 export async function listUsersController(_req: Request, res: Response) {
   const users = await UserModel.find()
-    .select("phone darjiCustomerId darjiAdminId name customerName email profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
+    .select("phone darjiCustomerId darjiAdminId name customerName email profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth customerCurrentLocation role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
     .sort({ createdAt: -1 });
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
 }

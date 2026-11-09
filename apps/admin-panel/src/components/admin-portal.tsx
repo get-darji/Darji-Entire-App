@@ -14159,6 +14159,41 @@ function getPartnerColumns({
   ];
 }
 
+const customerReverseGeocodeCache = new Map<string, string>();
+
+function CustomerAddressCell({ user, fullAddress }: { user: AdminUser; fullAddress: string }) {
+  const coordinates = user.customerCurrentLocation?.coordinates;
+  const longitude = coordinates?.[0];
+  const latitude = coordinates?.[1];
+  const locationKey = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? `${Number(latitude).toFixed(5)},${Number(longitude).toFixed(5)}`
+    : "";
+  const [resolvedAddress, setResolvedAddress] = useState(() => customerReverseGeocodeCache.get(locationKey) ?? "");
+
+  useEffect(() => {
+    if (fullAddress || !locationKey) return;
+    const cachedAddress = customerReverseGeocodeCache.get(locationKey);
+    if (cachedAddress) {
+      setResolvedAddress(cachedAddress);
+      return;
+    }
+    setResolvedAddress("");
+    let active = true;
+    void reverseGeocodeAdminLocation(Number(latitude), Number(longitude))
+      .then((result) => {
+        const value = result.formattedAddress?.trim() ?? "";
+        if (!value) return;
+        customerReverseGeocodeCache.set(locationKey, value);
+        if (active) setResolvedAddress(value);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [fullAddress, latitude, locationKey, longitude]);
+
+  const displayAddress = fullAddress || resolvedAddress;
+  return <div className="min-w-[220px] max-w-[360px] whitespace-normal text-sm" title={displayAddress || undefined}>{displayAddress || (locationKey ? "Resolving address…" : "—")}</div>;
+}
+
 function getUserColumns({
   onActivate,
   onBan,
@@ -14212,7 +14247,7 @@ function getUserColumns({
         const fullAddress = [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
           .filter((part) => typeof part === "string" && part.trim())
           .join(", ");
-        return <div className="min-w-[220px] max-w-[360px] whitespace-normal text-sm" title={fullAddress || undefined}>{fullAddress || "—"}</div>;
+        return <CustomerAddressCell fullAddress={fullAddress} user={row.original} />;
       }
     },
     {
