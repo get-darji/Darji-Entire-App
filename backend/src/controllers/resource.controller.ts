@@ -470,13 +470,19 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
   if (users.length === 0) return [];
 
   const userIds = users.map((user) => String(user.id ?? user._id));
-  const [tailors, partners] = await Promise.all([
+  const [tailors, partners, addresses] = await Promise.all([
     TailorModel.find({ userId: { $in: userIds } }).lean(),
-    DeliveryPartnerModel.find({ userId: { $in: userIds } }).lean()
+    DeliveryPartnerModel.find({ userId: { $in: userIds } }).lean(),
+    AddressModel.find({ userId: { $in: userIds } }).sort({ isDefault: -1, updatedAt: -1 }).lean()
   ]);
 
   const tailorMap = new Map(tailors.map((tailor) => [String(tailor.userId), tailor]));
   const partnerMap = new Map(partners.map((partner) => [String(partner.userId), partner]));
+  const addressMap = new Map<string, (typeof addresses)[number]>();
+  for (const address of addresses) {
+    const userId = String(address.userId);
+    if (!addressMap.has(userId)) addressMap.set(userId, address);
+  }
 
   return Promise.all(users.map(async (user) => {
     const userId = String(user.id ?? user._id);
@@ -491,7 +497,24 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
     if (profileUrl && !user.profileUrl) {
       await UserModel.updateOne({ _id: userId, profileUrl: { $in: [null, ""] } }, { $set: { profileUrl } });
     }
-    return { ...normalized, profileUrl, avatarUrl: profileUrl, tailorProfile: tailorProfile ?? null, deliveryProfile: deliveryProfile ?? null };
+    const customerAddress = addressMap.get(userId);
+    return {
+      ...normalized,
+      profileUrl,
+      avatarUrl: profileUrl,
+      customerAddress: customerAddress ? {
+        id: String(customerAddress._id),
+        line1: customerAddress.line1,
+        line2: customerAddress.line2,
+        landmark: customerAddress.landmark,
+        city: customerAddress.city,
+        state: customerAddress.state,
+        pincode: customerAddress.pincode,
+        isDefault: customerAddress.isDefault
+      } : null,
+      tailorProfile: tailorProfile ?? null,
+      deliveryProfile: deliveryProfile ?? null
+    };
   }));
 }
 

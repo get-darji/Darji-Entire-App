@@ -14199,6 +14199,23 @@ function getUserColumns({
       cell: ({ row }) => <button className="font-semibold text-orange-600 hover:underline" onClick={() => onOpen(row.original)} type="button">{row.original.darjiCustomerId ?? "Assigning…"}</button>
     },
     {
+      id: "customerAddress",
+      header: "Address",
+      accessorFn: (row) => {
+        const address = row.customerAddress;
+        return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join(", ");
+      },
+      cell: ({ row }) => {
+        const address = row.original.customerAddress;
+        const fullAddress = [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join(", ");
+        return <div className="min-w-[220px] max-w-[360px] whitespace-normal text-sm" title={fullAddress || undefined}>{fullAddress || "—"}</div>;
+      }
+    },
+    {
       accessorKey: "accountStatus",
       header: "Account",
       cell: ({ row }) => <StatusBadge value={row.original.accountStatus} />

@@ -1006,6 +1006,7 @@ export type MeResponse = BasicUser & {
 };
 
 export type AdminUser = BasicUser & {
+  customerAddress?: Address | null;
   tailorProfile?: TailorProfile | null;
   deliveryProfile?: DeliveryPartnerProfile | null;
   hasCustomerActivity?: boolean;
