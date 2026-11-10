@@ -2160,7 +2160,8 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
 export async function getDeliveryTaskOtpsController(req: Request, res: Response) {
   const orderId = String(req.params.orderId);
   const taskFilter: Record<string, unknown> = { orderId };
-  if (req.user!.role !== "ADMIN") taskFilter.taskStatus = { $in: ["pending", "accepted", "picked_up"] };
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user!.role);
+  if (!isAdmin) taskFilter.taskStatus = { $in: ["pending", "accepted", "picked_up"] };
   const tasks = await DeliveryRequestModel.find(taskFilter).sort({ createdAt: 1 });
   let tailorId: string | undefined;
   if (req.user!.role === "TAILOR") tailorId = (await TailorModel.findOne({ userId: req.user!.id }).select("_id"))?.id;
@@ -2172,7 +2173,7 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
     const isCustomer = req.user!.role === "CUSTOMER" && task.customerId === req.user!.id;
     const isTailor = req.user!.role === "TAILOR" && task.tailorId === tailorId;
     if (!isCustomer && !isTailor && !["ADMIN", "SUPER_ADMIN"].includes(req.user!.role)) return [];
-    const stages: Array<"pickup" | "drop"> = req.user!.role === "ADMIN"
+    const stages: Array<"pickup" | "drop"> = isAdmin
       ? (["pickup", "drop"] as const)
       : [isCustomer
         ? (task.type === "customer_to_tailor" ? "pickup" : "drop")
