@@ -341,6 +341,20 @@ export async function getDeliveryRequests() {
   return unwrap<DeliveryRequest[]>(api.get("/delivery-requests"));
 }
 
+export type AdminOrderOtp = {
+  taskId: string;
+  orderId: string;
+  type: string;
+  stage: "pickup" | "drop";
+  otp: string;
+  verified: boolean;
+  taskStatus: string;
+};
+
+export async function getAdminOrderOtps(orderId: string) {
+  return unwrap<AdminOrderOtp[]>(api.get(`/delivery-requests/order/${orderId}/otps`));
+}
+
 export async function getDeliveryRequestById(requestId: string) {
   return unwrap<DeliveryRequest>(api.get(`/delivery-requests/${requestId}`));
 }

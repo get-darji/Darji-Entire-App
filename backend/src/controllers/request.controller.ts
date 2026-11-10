@@ -2159,7 +2159,9 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
 
 export async function getDeliveryTaskOtpsController(req: Request, res: Response) {
   const orderId = String(req.params.orderId);
-  const tasks = await DeliveryRequestModel.find({ orderId, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }).sort({ createdAt: 1 });
+  const taskFilter: Record<string, unknown> = { orderId };
+  if (req.user!.role !== "ADMIN") taskFilter.taskStatus = { $in: ["pending", "accepted", "picked_up"] };
+  const tasks = await DeliveryRequestModel.find(taskFilter).sort({ createdAt: 1 });
   let tailorId: string | undefined;
   if (req.user!.role === "TAILOR") tailorId = (await TailorModel.findOne({ userId: req.user!.id }).select("_id"))?.id;
   const batchIds = [...new Set(tasks.map((task) => task.batchId).filter((batchId): batchId is string => typeof batchId === "string" && batchId.length > 0))];
@@ -2170,10 +2172,12 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
     const isCustomer = req.user!.role === "CUSTOMER" && task.customerId === req.user!.id;
     const isTailor = req.user!.role === "TAILOR" && task.tailorId === tailorId;
     if (!isCustomer && !isTailor && req.user!.role !== "ADMIN") return [];
-    const stage = isCustomer
-      ? (task.type === "customer_to_tailor" ? "pickup" : "drop")
-      : (task.type === "customer_to_tailor" ? "drop" : "pickup");
-    return [{
+    const stages: Array<"pickup" | "drop"> = req.user!.role === "ADMIN"
+      ? (["pickup", "drop"] as const)
+      : [isCustomer
+        ? (task.type === "customer_to_tailor" ? "pickup" : "drop")
+        : (task.type === "customer_to_tailor" ? "drop" : "pickup")];
+    return stages.map((stage) => ({
       taskId: task.id,
       orderId: task.orderId,
       type: task.type,
@@ -2194,7 +2198,7 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
       batchId: task.batchId,
       batchStatus: task.batchId ? batchById.get(task.batchId)?.status : undefined,
       batchLockAt: task.batchId ? batchById.get(task.batchId)?.lockAt : undefined
-    }];
+    }));
   });
   res.json({ data: visible });
 }
