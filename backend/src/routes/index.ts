@@ -278,7 +278,7 @@ router.patch("/admin/measurement-visits/:id/assign", requireAuth, requireRole("A
 router.patch("/tailors/me/measurement-capabilities", requireAuth, requireRole("TAILOR"), updateTailorMeasurementCapabilitiesController);
 
 router.get("/delivery-requests", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), listDeliveryRequestsController);
-router.get("/delivery-requests/order/:orderId/otps", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), getDeliveryTaskOtpsController);
+router.get("/delivery-requests/order/:orderId/otps", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN", "SUPER_ADMIN"), getDeliveryTaskOtpsController);
 router.post("/delivery-requests/media", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), uploadTailoringMedia, uploadTailoringMediaController);
 router.get("/delivery-requests/events/watch", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), watchDeliveryRequestsController);
 router.get("/delivery-requests/:id/reschedule-options", requireAuth, requireRole("CUSTOMER", "ADMIN"), listDeliveryRescheduleOptionsController);

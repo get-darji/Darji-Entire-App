@@ -11155,13 +11155,20 @@ function OrderDetailDialog({
               <div className="space-y-4 p-5">
                 <Panel className="rounded-2xl p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div><h4 className="text-sm font-bold text-[var(--deep)]">Order OTPs</h4><p className="mt-1 text-xs text-[var(--muted)]">Pickup and drop codes for each delivery task. Codes are visible to administrators.</p></div>
-                    <Badge tone="slate">{orderOtpsQuery.data?.length ?? 0} codes</Badge>
+                    <div><h4 className="text-sm font-bold text-[var(--deep)]">Order OTPs by stage</h4><p className="mt-1 text-xs text-[var(--muted)]">Generated handoff codes appear beside their stage. Stages without a delivery task yet stay pending.</p></div>
+                    <Badge tone="slate">{orderOtpsQuery.data?.filter((entry) => Boolean(entry.otp)).length ?? 0} codes</Badge>
                   </div>
                   {orderOtpsQuery.isLoading ? <div className="mt-3"><LoadingState label="Loading order OTPs..." /></div> : null}
                   {orderOtpsQuery.isError ? <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{extractError(orderOtpsQuery.error)}</p> : null}
-                  {!orderOtpsQuery.isLoading && !orderOtpsQuery.isError && !orderOtpsQuery.data?.length ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Pending · no delivery OTPs have been generated for this order.</p> : null}
-                  {orderOtpsQuery.data?.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{orderOtpsQuery.data.map((entry) => <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2" key={`${entry.taskId}-${entry.stage}`}><div><p className="text-xs font-bold">{formatStatus(entry.type)} · {formatStatus(entry.stage)}</p><p className="mt-1 text-[11px] text-[var(--muted)]">{formatStatus(entry.taskStatus)}{entry.verified ? " · Verified" : " · Not verified"}</p></div><span className="rounded-lg bg-orange-50 px-3 py-1 font-mono text-lg font-bold tracking-[0.2em] text-orange-800">{entry.otp || "Pending"}</span></div>)}</div> : null}
+                  {!orderOtpsQuery.isLoading && !orderOtpsQuery.isError ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{([
+                    { type: "customer_to_tailor", stage: "pickup", label: "Customer pickup · Customer gives code to delivery partner" },
+                    { type: "customer_to_tailor", stage: "drop", label: "Pickup handoff · Tailor gives code to delivery partner" },
+                    { type: "tailor_to_customer", stage: "pickup", label: "Ready for delivery · Tailor gives code to delivery partner" },
+                    { type: "tailor_to_customer", stage: "drop", label: "Final delivery · Customer gives code to delivery partner" }
+                  ] as const).map((stage) => {
+                    const entry = orderOtpsQuery.data?.find((candidate) => candidate.type === stage.type && candidate.stage === stage.stage);
+                    return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2" key={`${stage.type}-${stage.stage}`}><div><p className="text-xs font-bold">{stage.label}</p><p className="mt-1 text-[11px] text-[var(--muted)]">{entry ? `${formatStatus(entry.taskStatus)} · ${entry.verified ? "Verified" : "Not verified"}` : "Pending · task not created yet"}</p></div><span className={cn("shrink-0 rounded-lg px-3 py-1 font-mono text-lg font-bold tracking-[0.2em]", entry?.otp ? "bg-orange-50 text-orange-800" : "bg-amber-50 text-amber-800")}>{entry?.otp ?? "Pending"}</span></div>;
+                  })}</div> : null}
                 </Panel>
                 <div className="grid gap-4 lg:grid-cols-2" ref={overviewRef}>
                   <Panel className="rounded-2xl p-4">

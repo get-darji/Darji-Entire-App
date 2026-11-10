@@ -2171,7 +2171,7 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
   const visible = tasks.flatMap((task) => {
     const isCustomer = req.user!.role === "CUSTOMER" && task.customerId === req.user!.id;
     const isTailor = req.user!.role === "TAILOR" && task.tailorId === tailorId;
-    if (!isCustomer && !isTailor && req.user!.role !== "ADMIN") return [];
+    if (!isCustomer && !isTailor && !["ADMIN", "SUPER_ADMIN"].includes(req.user!.role)) return [];
     const stages: Array<"pickup" | "drop"> = req.user!.role === "ADMIN"
       ? (["pickup", "drop"] as const)
       : [isCustomer
