@@ -11167,7 +11167,9 @@ function OrderDetailDialog({
                     { type: "tailor_to_customer", stage: "drop", label: "Final delivery · Customer gives code to delivery partner" }
                   ] as const).map((stage) => {
                     const entry = orderOtpsQuery.data?.find((candidate) => candidate.type === stage.type && candidate.stage === stage.stage);
-                    return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2" key={`${stage.type}-${stage.stage}`}><div><p className="text-xs font-bold">{stage.label}</p><p className="mt-1 text-[11px] text-[var(--muted)]">{entry ? `${formatStatus(entry.taskStatus)} · ${entry.verified ? "Verified" : "Not verified"}` : "Pending · task not created yet"}</p></div><span className={cn("shrink-0 rounded-lg px-3 py-1 font-mono text-lg font-bold tracking-[0.2em]", entry?.otp ? "bg-orange-50 text-orange-800" : "bg-amber-50 text-amber-800")}>{entry?.otp ?? "Pending"}</span></div>;
+                    const taskExists = orderOtpsQuery.data?.some((candidate) => candidate.type === stage.type) ?? false;
+                    const pendingLabel = taskExists ? "Task exists · stage OTP not returned by backend" : "Pending · task not created yet";
+                    return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2" key={`${stage.type}-${stage.stage}`}><div><p className="text-xs font-bold">{stage.label}</p><p className="mt-1 text-[11px] text-[var(--muted)]">{entry ? `${formatStatus(entry.taskStatus)} · ${entry.verified ? "Verified" : "Not verified"}` : pendingLabel}</p></div><span className={cn("shrink-0 rounded-lg px-3 py-1 font-mono text-lg font-bold tracking-[0.2em]", entry?.otp ? "bg-orange-50 text-orange-800" : "bg-amber-50 text-amber-800")}>{entry?.otp ?? "Pending"}</span></div>;
                   })}</div> : null}
                 </Panel>
                 <div className="grid gap-4 lg:grid-cols-2" ref={overviewRef}>
