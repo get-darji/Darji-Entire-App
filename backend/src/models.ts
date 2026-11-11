@@ -1168,6 +1168,20 @@ const adminOrderMetadataSchema = new Schema(
   baseOptions
 );
 
+const realizedFinanceAdjustmentSchema = new Schema(
+  {
+    _id: stringId,
+    orderId: { type: String, required: true, unique: true, index: true },
+    collectedAmount: { type: Number, required: true, min: 0 },
+    stitchingCost: { type: Number, required: true, min: 0 },
+    measurementCost: { type: Number, required: true, min: 0 },
+    deliveryCost: { type: Number, required: true, min: 0 },
+    packagingCost: { type: Number, required: true, min: 0 },
+    updatedBy: { type: String, required: true }
+  },
+  baseOptions
+);
+
 const adminAuditLogSchema = new Schema(
   {
     _id: stringId,
@@ -1278,6 +1292,7 @@ export const PromotionalBannerModel = mongoose.model("PromotionalBanner", promot
 export const MarketingSignupModel = mongoose.model("MarketingSignup", marketingSignupSchema, "marketing_signups");
 export const ServiceAreaInterestModel = mongoose.model("ServiceAreaInterest", serviceAreaInterestSchema, "service_area_interests");
 export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");
+export const RealizedFinanceAdjustmentModel = mongoose.model("RealizedFinanceAdjustment", realizedFinanceAdjustmentSchema, "realized_finance_adjustments");
 export const AdminAuditLogModel = mongoose.model("AdminAuditLog", adminAuditLogSchema, "admin_audit_logs");
 export const NotificationCampaignModel = mongoose.model("NotificationCampaign", notificationCampaignSchema, "notification_campaigns");
 export const TranslationCacheModel = mongoose.model("TranslationCache", translationCacheSchema, "translation_cache");

@@ -390,6 +390,18 @@ export async function getDashboardAnalytics(params: { start: string; endExclusiv
   return unwrap<DashboardAnalytics>(api.get("/admin/analytics/dashboard", { params }));
 }
 
+export async function updateRealizedFinanceAdjustment(payload: {
+  orderId: string;
+  collectedAmount: number;
+  stitchingCost: number;
+  measurementCost: number;
+  deliveryCost: number;
+  packagingCost: number;
+}) {
+  const { orderId, ...body } = payload;
+  return unwrap(api.patch(`/admin/orders/${encodeURIComponent(orderId)}/realized-finance`, body));
+}
+
 export async function getMeasurementVisits() {
   return unwrap<MeasurementVisit[]>(api.get("/measurement-visits"));
 }

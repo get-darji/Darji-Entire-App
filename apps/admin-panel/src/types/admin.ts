@@ -233,6 +233,8 @@ export type DashboardAnalytics = {
         partnerCost: number;
         realizedRevenue: number;
         marginPercentage: number | null;
+        adjusted?: boolean;
+        adjustmentUpdatedAt?: string;
       }>;
     };
     reconciliation: {

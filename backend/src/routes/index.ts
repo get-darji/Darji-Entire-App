@@ -20,6 +20,7 @@ import {
   listAdminOrderQuotesController,
   updateAdminOrderQuoteController,
   updateAdminOrderPricingController,
+  updateRealizedFinanceAdjustmentController,
   listAdminAssignmentCandidatesController,
   reportAdminOrderIssueController,
   deleteAdminOrderController,
@@ -324,6 +325,7 @@ router.get("/admin/orders/:id/invoice.pdf", requireAuth, requireRole("ADMIN", "S
 router.get("/admin/orders/:id/quotes", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminOrderQuotesController);
 router.patch("/admin/orders/:id/quotes/:quoteId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderQuoteController);
 router.patch("/admin/orders/:id/pricing", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderPricingController);
+router.patch("/admin/orders/:id/realized-finance", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateRealizedFinanceAdjustmentController);
 router.get("/admin/assignment-candidates", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminAssignmentCandidatesController);
 router.post("/admin/orders/:id/issues", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reportAdminOrderIssueController);
 router.delete("/admin/orders/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminOrderController);

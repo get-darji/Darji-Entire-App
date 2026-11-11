@@ -7,6 +7,7 @@ import {
   OrderModel,
   PaymentModel,
   PaymentHistoryModel,
+  RealizedFinanceAdjustmentModel,
   TailorModel,
   TailorQuoteModel,
   TailoringRequestModel,
@@ -27,7 +28,6 @@ import {
   type PartnerObligation
 } from "./financial-reporting.logic.js";
 
-const PACKAGING_COST_PER_ORDER = OPERATIONAL_ALLOWANCE_PER_ORDER;
 
 type OrderCategory = "pending" | "active" | "completed" | "cancelled";
 type PeriodBounds = { start: Date; endExclusive: Date };
@@ -156,6 +156,7 @@ type RealizedRecord = {
   grossPaid: number;
   tailorCost: number;
   deliveryCost: number;
+  packagingCost: number;
 };
 
 export function summarizeRealizedRecords(records: RealizedRecord[]) {
@@ -163,7 +164,7 @@ export function summarizeRealizedRecords(records: RealizedRecord[]) {
   const tailorCost = records.reduce((sum, record) => sum + record.tailorCost, 0);
   const deliveryCost = records.reduce((sum, record) => sum + record.deliveryCost, 0);
   const partnerCost = tailorCost + deliveryCost;
-  const packagingCost = records.length * PACKAGING_COST_PER_ORDER;
+  const packagingCost = records.reduce((sum, record) => sum + record.packagingCost, 0);
   return {
     completedOrders: records.length,
     grossPaid: Number(grossPaid.toFixed(2)),
@@ -253,7 +254,7 @@ function buildSeries(
     if (!bucket) return;
     bucket.grossPaid += record.grossPaid;
     bucket.partnerCost += record.tailorCost + record.deliveryCost;
-    bucket.packagingCost += PACKAGING_COST_PER_ORDER;
+    bucket.packagingCost += record.packagingCost;
   });
   return {
     orders: slots.map((slot) => ({ label: slot.label, ...orderMap.get(slot.key)! })),
@@ -267,7 +268,7 @@ function buildSeries(
 
 export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
-  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, otpMetric, totalCustomers] = await Promise.all([
+  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, financeAdjustments, otpMetric, totalCustomers] = await Promise.all([
     OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount totalAmount paymentMethod homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
@@ -280,6 +281,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt cashCollectionRequired cashCollected cashCollectedAt").lean(),
     DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
     MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean(),
+    RealizedFinanceAdjustmentModel.find().select("orderId collectedAmount stitchingCost measurementCost deliveryCost packagingCost updatedAt updatedBy").lean(),
     OtpMetricModel.findById("twofactor-successful-sends").lean(),
     UserModel.countDocuments({ role: "CUSTOMER", createdAt: { $gte: current.start, $lt: current.endExclusive } })
   ]);
@@ -564,11 +566,13 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
 
   const obligationsByOrder = new Map<string, typeof completedPartnerRows>();
   completedPartnerRows.forEach((row) => obligationsByOrder.set(row.orderId, [...(obligationsByOrder.get(row.orderId) ?? []), row]));
+  const financeAdjustmentByOrderId = new Map(financeAdjustments.map((adjustment: any) => [String(adjustment.orderId), adjustment]));
   const paymentOrderIds = new Set(paymentCollections.allRows.map((row) => row.orderId));
   const realizedRecords: RealizedRecord[] = [];
   const realizedOrderRows: Array<{
     orderId: string; orderNumber?: string; completionDate: string; collectedAmount: number; stitchingCost: number;
     measurementCost: number; deliveryCost: number; operationalAllowance: number; partnerCost: number; realizedRevenue: number; marginPercentage: number | null;
+    adjusted?: boolean; adjustmentUpdatedAt?: string;
   }> = [];
   normalizedOrders.filter((order) => order.category === "completed" && order.completedAt).forEach((order) => {
     const rows = obligationsByOrder.get(order.id) ?? [];
@@ -583,7 +587,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     if (!stitchingRows.length) missing.push("stitching cost");
     if (measurementRequired && !measurementRows.length) missing.push("measurement cost");
     if (!activeTasks.length || deliveryRows.length !== activeTasks.length) missing.push("finalized delivery cost");
-    if (missing.length) {
+    if (missing.length && !financeAdjustmentByOrderId.has(order.id)) {
       financeExceptions.push({ type: "INCOMPLETE_ORDER_FINANCE", orderId: order.id, message: `Excluded from realized revenue: missing ${missing.join(", ")}.` });
       return;
     }
@@ -591,13 +595,15 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       type: "MISSING_WALLET_CREDIT", orderId: order.id, sourceId: row.sourceId,
       message: `${row.category.toLowerCase()} liability is finalized but has no matching wallet earning credit.`
     }));
-    const grossPaid = roundMoney(paymentCollections.allTimeNetByOrder.get(order.id) ?? 0);
-    const stitchingCost = roundMoney(stitchingRows.reduce((sum, row) => sum + row.amount, 0));
-    const measurementCost = roundMoney(measurementRows.reduce((sum, row) => sum + row.amount, 0));
-    const deliveryCost = roundMoney(deliveryRows.reduce((sum, row) => sum + row.amount, 0));
+    const adjustment: any = financeAdjustmentByOrderId.get(order.id);
+    const grossPaid = roundMoney(adjustment?.collectedAmount ?? paymentCollections.allTimeNetByOrder.get(order.id) ?? 0);
+    const stitchingCost = roundMoney(adjustment?.stitchingCost ?? stitchingRows.reduce((sum, row) => sum + row.amount, 0));
+    const measurementCost = roundMoney(adjustment?.measurementCost ?? measurementRows.reduce((sum, row) => sum + row.amount, 0));
+    const deliveryCost = roundMoney(adjustment?.deliveryCost ?? deliveryRows.reduce((sum, row) => sum + row.amount, 0));
+    const packagingCost = roundMoney(adjustment?.packagingCost ?? OPERATIONAL_ALLOWANCE_PER_ORDER);
     const tailorCost = roundMoney(stitchingCost + measurementCost);
-    const realizedRevenue = roundMoney(grossPaid - tailorCost - deliveryCost - OPERATIONAL_ALLOWANCE_PER_ORDER);
-    realizedRecords.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost });
+    const realizedRevenue = roundMoney(grossPaid - tailorCost - deliveryCost - packagingCost);
+    realizedRecords.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost, packagingCost });
     realizedOrderRows.push({
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -606,10 +612,12 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       stitchingCost,
       measurementCost,
       deliveryCost,
-      operationalAllowance: OPERATIONAL_ALLOWANCE_PER_ORDER,
+      operationalAllowance: packagingCost,
       partnerCost: roundMoney(tailorCost + deliveryCost),
       realizedRevenue,
-      marginPercentage: grossPaid ? roundMoney((realizedRevenue / grossPaid) * 100) : null
+      marginPercentage: grossPaid ? roundMoney((realizedRevenue / grossPaid) * 100) : null,
+      adjusted: Boolean(adjustment),
+      adjustmentUpdatedAt: adjustment?.updatedAt ? new Date(adjustment.updatedAt).toISOString() : undefined
     });
   });
   if (payoutAllocation.unallocatedPaidAmount > 0) financeExceptions.push({

@@ -48,6 +48,7 @@ import {
   deliveryTypes,
   AdminAuditLogModel,
   AdminOrderMetadataModel,
+  RealizedFinanceAdjustmentModel,
   MeasurementVisitModel,
   NotificationCampaignModel,
   MarketingSignupModel,
@@ -3721,6 +3722,28 @@ export async function dashboardAnalyticsController(req: Request, res: Response) 
   const data = await getDashboardAnalytics(req.query.start, req.query.endExclusive, String(req.query.lifetime).toLowerCase() === "true");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data });
+}
+
+export async function updateRealizedFinanceAdjustmentController(req: Request, res: Response) {
+  const input = z.object({
+    collectedAmount: z.coerce.number().finite().min(0).max(1_000_000),
+    stitchingCost: z.coerce.number().finite().min(0).max(1_000_000),
+    measurementCost: z.coerce.number().finite().min(0).max(1_000_000),
+    deliveryCost: z.coerce.number().finite().min(0).max(1_000_000),
+    packagingCost: z.coerce.number().finite().min(0).max(1_000_000)
+  }).strict().parse(req.body);
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const status = String(entity.value.orderStatus ?? entity.value.status ?? "").toUpperCase();
+  if (entity.kind === "TAILORING_REQUEST" ? status !== "COMPLETED" : status !== "DELIVERED") {
+    throw new AppError(409, "Revenue adjustments are available only for completed orders");
+  }
+  const adjustment = await RealizedFinanceAdjustmentModel.findOneAndUpdate(
+    { orderId: String(entity.value.id ?? entity.value._id) },
+    { $set: { ...input, updatedBy: req.user!.id } },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+  ).lean();
+  res.json({ data: adjustment });
 }
 
 export async function listAdminActivityLogsController(req: Request, res: Response) {
