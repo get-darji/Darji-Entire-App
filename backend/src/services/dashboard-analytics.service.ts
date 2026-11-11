@@ -269,7 +269,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
   const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, otpMetric, totalCustomers] = await Promise.all([
     OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
-    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
+    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount totalAmount paymentMethod homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("_id userId userType orderId amount createdAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT" }).select("_id userId userType orderId category amount createdAt").lean(),
@@ -277,7 +277,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("userId userType balance").lean(),
     TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus verification.personal.name verification.idVerification.facePhotoUrl rating createdAt").lean(),
     DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus verification.personal.gender verification.identity.facePhotoUrl rating createdAt").lean(),
-    DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt").lean(),
+    DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt cashCollectionRequired cashCollected cashCollectedAt").lean(),
     DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
     MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean(),
     OtpMetricModel.findById("twofactor-successful-sends").lean(),
@@ -379,13 +379,24 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     cancellationFee: order.cancellationFee,
     completedAt: order.completedAt
   }]));
+  const confirmedCodCollectionOrderIds = new Set(deliveryRequests
+    .filter((task: any) => task.cashCollectionRequired && task.cashCollected)
+    .map((task: any) => String(task.orderId)));
+  const tailoringRequestsById = new Map(tailoringRequests.map((request: any) => [String(request._id), request]));
   const paymentCollections = buildPaymentCollections(
     payments.map((payment: any) => ({
       id: String(payment._id),
       orderId: String(payment.orderId),
       method: String(payment.method ?? "UNKNOWN"),
       status: String(payment.status ?? "UNKNOWN"),
-      amount: Number(payment.amount ?? 0),
+      amount: (() => {
+        const request: any = tailoringRequestsById.get(String(payment.orderId));
+        const confirmedCodCollection = String(payment.method ?? "").toUpperCase() === "COD"
+          && confirmedCodCollectionOrderIds.has(String(payment.orderId));
+        return confirmedCodCollection && request?.totalAmount != null
+          ? Number(request.totalAmount)
+          : Number(payment.amount ?? 0);
+      })(),
       providerRef: payment.providerRef,
       paidAt: payment.paidAt,
       refundedAt: payment.refundedAt,
