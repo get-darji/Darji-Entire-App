@@ -439,7 +439,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       const request: any = tailoringRequestById.get(order.id);
       const quote: any = selectedQuoteByRequestId.get(order.id);
       const tailorProfile: any = quote?.tailorId ? tailorByProfileId.get(String(quote.tailorId)) : undefined;
-      const amount = Number(quote?.price ?? request?.quoteAmount ?? 0);
+      // The request stores the current accepted/admin-adjusted quote. The selected quote
+      // can lag behind it when older records were repriced through a different flow.
+      const amount = Number(request?.quoteAmount ?? quote?.price ?? 0);
       if (tailorProfile?.userId && amount > 0) {
         const credit = creditFor("TAILOR", String(tailorProfile.userId), order.id);
         addObligation({
