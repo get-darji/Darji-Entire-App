@@ -111,7 +111,15 @@ const userSchema = new Schema(
       coordinates: { type: [Number] }
     },
     customerLocationAccuracy: Number,
-    customerLocationUpdatedAt: Date
+    customerLocationUpdatedAt: Date,
+    customerLocationAddressCheckedAt: Date,
+    customerLocationAddress: {
+      formattedAddress: String,
+      area: String,
+      city: String,
+      state: String,
+      postalCode: String
+    }
   },
   baseOptions
 );

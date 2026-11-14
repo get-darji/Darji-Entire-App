@@ -1282,6 +1282,7 @@ function NewRequestStep({
       async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
+        void customerApi.saveCurrentLocation(lat, lng, position.coords.accuracy).catch(() => undefined);
         try {
           setLocationStatus("Fetching address...");
           let addressText: string;
@@ -3237,6 +3238,7 @@ function SavedAddressesScreen({ setScreen }: { setScreen: (s: CustomerScreen) =>
       async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
+        void customerApi.saveCurrentLocation(lat, lng, position.coords.accuracy).catch(() => undefined);
         try {
           setLocationStatus("Fetching address...");
           let res: {

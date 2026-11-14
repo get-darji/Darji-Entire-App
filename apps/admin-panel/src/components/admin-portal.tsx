@@ -877,7 +877,7 @@ export function AdminPortal() {
   useEffect(() => {
     if (activeSection !== "users") return;
     let active = true;
-    const customersToResolve = (usersQuery.data ?? []).filter((user) => getCustomerLocationKey(user));
+    const customersToResolve = (usersQuery.data ?? []).filter((user) => !user.customerLocationAddress?.formattedAddress && getCustomerLocationKey(user));
     void Promise.all(customersToResolve.map(async (user) => {
       const key = getCustomerLocationKey(user);
       if (!key) return null;
@@ -2628,7 +2628,7 @@ export function AdminPortal() {
 
   const customerAddressText = (user: AdminUser) => {
     const address = user.customerAddress;
-    const reverseAddress = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+    const reverseAddress = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
     return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode, reverseAddress?.formattedAddress]
       .filter((part) => typeof part === "string" && part.trim())
       .join(", ");
@@ -2636,19 +2636,19 @@ export function AdminPortal() {
   const customerAddressFacets: Record<"area" | "city" | "state", string[]> = {
     area: [...new Set(customerUsers.flatMap((user) => {
       const saved = user.customerAddress;
-      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      const resolved = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
       return [saved?.line1, saved?.line2, saved?.landmark, resolved?.area, resolved?.route, resolved?.houseNumber, resolved?.locality, resolved?.city]
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
     }))].sort((a, b) => a.localeCompare(b)),
     city: [...new Set(customerUsers.flatMap((user) => {
       const saved = user.customerAddress;
-      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      const resolved = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
       return [saved?.city, resolved?.city, resolved?.locality, saved?.state, resolved?.state]
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
     }))].sort((a, b) => a.localeCompare(b)),
     state: [...new Set(customerUsers.flatMap((user) => {
       const saved = user.customerAddress;
-      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      const resolved = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
       return [saved?.state, resolved?.state]
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
     }))].sort((a, b) => a.localeCompare(b))
@@ -2659,7 +2659,7 @@ export function AdminPortal() {
   const filteredUsers = customerUsers.filter((user) => {
     const address = customerAddressText(user);
     const saved = user.customerAddress;
-    const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+    const resolved = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
     const addressTypeValues: Record<"area" | "city" | "state", string[]> = {
       area: [saved?.line1, saved?.line2, saved?.landmark, resolved?.area, resolved?.route, resolved?.houseNumber, resolved?.locality, resolved?.city].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
       city: [saved?.city, resolved?.city, resolved?.locality, saved?.state, resolved?.state].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
@@ -2951,6 +2951,7 @@ export function AdminPortal() {
     pendingDelete: accountDeleteMutation.isPending
   });
   const userColumns = getUserColumns({
+    resolvedAddresses: resolvedCustomerAddresses,
     onActivate: (userId) => userModerationMutation.mutate({ userId, action: "ACTIVE" }),
     onBan: (userId) => userModerationMutation.mutate({ userId, action: "BANNED", reason: "Banned by admin" }),
     onDelete: (user) => {
@@ -14504,6 +14505,7 @@ function CustomerAddressCell({ user, fullAddress }: { user: AdminUser; fullAddre
 }
 
 function getUserColumns({
+  resolvedAddresses,
   onActivate,
   onBan,
   onDelete,
@@ -14512,6 +14514,7 @@ function getUserColumns({
   pending,
   pendingDelete
 }: {
+  resolvedAddresses: Record<string, ResolvedCustomerAddress>;
   onActivate: (userId: string) => void;
   onBan: (userId: string) => void;
   onDelete: (user: AdminUser) => void;
@@ -14555,9 +14558,21 @@ function getUserColumns({
         const address = row.original.customerAddress;
         const fullAddress = [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
           .filter((part) => typeof part === "string" && part.trim())
-          .join(", ");
+          .join(", ") || row.original.customerLocationAddress?.formattedAddress || "";
         return <CustomerAddressCell fullAddress={fullAddress} user={row.original} />;
       }
+    },
+    {
+      id: "customerCity",
+      header: "City",
+      accessorFn: (row) => row.customerLocationAddress?.city || row.customerAddress?.city || resolvedAddresses[getCustomerLocationKey(row)]?.city || "",
+      cell: ({ row }) => row.original.customerLocationAddress?.city || row.original.customerAddress?.city || resolvedAddresses[getCustomerLocationKey(row.original)]?.city || "—"
+    },
+    {
+      id: "customerState",
+      header: "State",
+      accessorFn: (row) => row.customerLocationAddress?.state || row.customerAddress?.state || resolvedAddresses[getCustomerLocationKey(row)]?.state || "",
+      cell: ({ row }) => row.original.customerLocationAddress?.state || row.original.customerAddress?.state || resolvedAddresses[getCustomerLocationKey(row.original)]?.state || "—"
     },
     {
       accessorKey: "accountStatus",

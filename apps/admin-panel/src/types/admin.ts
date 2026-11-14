@@ -1010,6 +1010,7 @@ export type MeResponse = BasicUser & {
 export type AdminUser = BasicUser & {
   customerAddress?: Address | null;
   customerCurrentLocation?: { coordinates?: number[] } | null;
+  customerLocationAddress?: { formattedAddress?: string; area?: string; city?: string; state?: string; postalCode?: string; route?: string; houseNumber?: string; locality?: string } | null;
   tailorProfile?: TailorProfile | null;
   deliveryProfile?: DeliveryPartnerProfile | null;
   hasCustomerActivity?: boolean;

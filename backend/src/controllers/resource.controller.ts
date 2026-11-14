@@ -1130,7 +1130,7 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
 
 export async function listUsersController(_req: Request, res: Response) {
   const users = await UserModel.find()
-    .select("phone darjiCustomerId darjiAdminId name customerName email profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth customerCurrentLocation role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
+    .select("phone darjiCustomerId darjiAdminId name customerName email profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth customerCurrentLocation customerLocationAddress role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
     .sort({ createdAt: -1 });
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
 }
@@ -1142,17 +1142,55 @@ export async function updateCustomerCurrentLocationController(req: Request, res:
     longitude: z.number().finite().min(-180).max(180),
     accuracy: z.number().finite().nonnegative().optional()
   }).parse(req.body ?? {});
+  const existing = await UserModel.findById(req.user.id).select("customerCurrentLocation customerLocationAddress customerLocationAddressCheckedAt");
+  if (!existing) throw new AppError(404, "Customer not found");
+  const previous = existing.customerCurrentLocation?.coordinates;
+  const moved = !previous || Math.abs(Number(previous[0]) - longitude) > 0.02 || Math.abs(Number(previous[1]) - latitude) > 0.02;
+  const lastCheck = existing.customerLocationAddressCheckedAt?.getTime() ?? 0;
+  const needsAddress = moved || ((!existing.customerLocationAddress?.city || !existing.customerLocationAddress?.state) && Date.now() - lastCheck > 30 * 60 * 1000);
+  const locationAddress = needsAddress ? await resolveCustomerLocationAddress(latitude, longitude) : null;
   const updatedAt = new Date();
   const user = await UserModel.findByIdAndUpdate(req.user.id, {
     $set: {
       customerCurrentLocation: { type: "Point", coordinates: [longitude, latitude] },
       customerLocationAccuracy: accuracy,
-      customerLocationUpdatedAt: updatedAt
-    }
+      customerLocationUpdatedAt: updatedAt,
+      ...(needsAddress ? { customerLocationAddressCheckedAt: updatedAt } : {}),
+      ...(locationAddress ? { customerLocationAddress: locationAddress } : {})
+    },
+    ...(moved && !locationAddress ? { $unset: { customerLocationAddress: 1 } } : {})
   }, { returnDocument: "after", select: "_id customerLocationUpdatedAt" });
   if (!user) throw new AppError(404, "Customer not found");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: { updatedAt: user.customerLocationUpdatedAt } });
+}
+
+async function resolveCustomerLocationAddress(latitude: number, longitude: number) {
+  try {
+    if (env.GOOGLE_MAPS_API_KEY) {
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${env.GOOGLE_MAPS_API_KEY}`);
+      const data = await response.json() as { status: string; results?: Array<{ formatted_address: string; address_components: Array<{ long_name: string; types: string[] }> }> };
+      const result = data.status === "OK" ? data.results?.[0] : undefined;
+      if (result) {
+        const component = (...types: string[]) => result.address_components.find((item) => types.some((type) => item.types.includes(type)))?.long_name ?? "";
+        return {
+          formattedAddress: result.formatted_address,
+          area: component("sublocality_level_1", "sublocality", "neighborhood"),
+          city: component("locality", "administrative_area_level_2"),
+          state: component("administrative_area_level_1"),
+          postalCode: component("postal_code")
+        };
+      }
+    }
+  } catch { /* Try the fallback provider. */ }
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`, { headers: { "User-Agent": "Darji-App/1.0" } });
+    if (!response.ok) return null;
+    const data = await response.json() as { display_name?: string; address?: { suburb?: string; neighbourhood?: string; city?: string; town?: string; village?: string; county?: string; state?: string; postcode?: string } };
+    if (!data.display_name) return null;
+    const address = data.address ?? {};
+    return { formattedAddress: data.display_name, area: address.suburb ?? address.neighbourhood ?? "", city: address.city ?? address.town ?? address.village ?? address.county ?? "", state: address.state ?? "", postalCode: address.postcode ?? "" };
+  } catch { return null; }
 }
 
 export async function getAdminCustomerProfileController(req: Request, res: Response) {

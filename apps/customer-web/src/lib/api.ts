@@ -135,6 +135,8 @@ export const customerApi = {
   sendBugMessage: (id: string, data: unknown) => request<any>({ method: "POST", url: `/support/bug-reports/${id}/messages`, data }),
   updateTicketStatus: (id: string, status: string) => request<any>({ method: "PATCH", url: `/support/${id}`, data: { status } }),
   getDeliveryFares: () => request<any>({ method: "GET", url: "/settings/delivery-fares" }),
+  saveCurrentLocation: (latitude: number, longitude: number, accuracy?: number) =>
+    request<{ updatedAt: string }>({ method: "PATCH", url: "/customers/me/location", data: { latitude, longitude, accuracy } }),
   reverseGeocode: (lat: number, lng: number) =>
     request<{ formattedAddress: string; houseNumber: string; route: string; area: string; locality: string; city: string; state: string; postalCode: string; country: string }>({ method: "GET", url: `/location/reverse-geocode?lat=${lat}&lng=${lng}` })
 };
