@@ -634,7 +634,11 @@ export function AdminPortal() {
   const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerDirectorySearch, setCustomerDirectorySearch] = useState("");
-  const [customerAddressFilter, setCustomerAddressFilter] = useState("");
+  const [customerAddressPickerOpen, setCustomerAddressPickerOpen] = useState(false);
+  const [customerAddressOptionSearch, setCustomerAddressOptionSearch] = useState("");
+  const [customerAddressTypes, setCustomerAddressTypes] = useState<Array<"area" | "city" | "state">>(["area", "city", "state"]);
+  const [selectedCustomerAddressOptions, setSelectedCustomerAddressOptions] = useState<string[]>([]);
+  const [resolvedCustomerAddresses, setResolvedCustomerAddresses] = useState<Record<string, Awaited<ReturnType<typeof reverseGeocodeAdminLocation>>>>({});
   const [tailorDirectorySearch, setTailorDirectorySearch] = useState("");
   const [partnerDirectorySearch, setPartnerDirectorySearch] = useState("");
   const [mapPartnerFocus, setMapPartnerFocus] = useState<MapPartnerFocus | null>(null);
@@ -1992,6 +1996,31 @@ export function AdminPortal() {
 
     return directory.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   })();
+  const customerLocationsSignature = customerUsers.map((user) => getCustomerLocationKey(user)).filter(Boolean).join("|");
+  useEffect(() => {
+    if (activeSection !== "users") return;
+    let active = true;
+    const customersToResolve = customerUsers.filter((user) => !getSavedCustomerAddress(user) && getCustomerLocationKey(user));
+    void Promise.all(customersToResolve.map(async (user) => {
+      const key = getCustomerLocationKey(user);
+      if (!key) return null;
+      const cached = customerReverseGeocodeCache.get(key);
+      if (cached) return [key, cached] as const;
+      const coordinates = user.customerCurrentLocation?.coordinates;
+      if (!coordinates) return null;
+      try {
+        const result = await reverseGeocodeAdminLocation(Number(coordinates[1]), Number(coordinates[0]));
+        customerReverseGeocodeCache.set(key, result);
+        return [key, result] as const;
+      } catch {
+        return null;
+      }
+    })).then((results) => {
+      if (!active) return;
+      setResolvedCustomerAddresses((current) => ({ ...current, ...Object.fromEntries(results.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))) }));
+    });
+    return () => { active = false; };
+  }, [activeSection, customerLocationsSignature]);
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
     if (!searchTerm) return [];
@@ -2599,28 +2628,55 @@ export function AdminPortal() {
 
   const customerAddressText = (user: AdminUser) => {
     const address = user.customerAddress;
-    return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+    const reverseAddress = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+    return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode, reverseAddress?.formattedAddress]
       .filter((part) => typeof part === "string" && part.trim())
       .join(", ");
   };
-  const addressSuggestions = [...new Set(customerUsers.flatMap((user) => {
-    const address = user.customerAddress;
-    return [address?.line1, address?.line2, address?.city, address?.state, address?.landmark, address?.pincode]
-      .filter((part): part is string => typeof part === "string" && Boolean(part.trim()))
-      .map((part) => part.trim());
-  }))].sort((a, b) => a.localeCompare(b));
+  const customerAddressFacets: Record<"area" | "city" | "state", string[]> = {
+    area: [...new Set(customerUsers.flatMap((user) => {
+      const saved = user.customerAddress;
+      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      return [saved?.line1, saved?.line2, saved?.landmark, resolved?.area, resolved?.route, resolved?.houseNumber, resolved?.locality, resolved?.city]
+        .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
+    }))].sort((a, b) => a.localeCompare(b)),
+    city: [...new Set(customerUsers.flatMap((user) => {
+      const saved = user.customerAddress;
+      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      return [saved?.city, resolved?.city, resolved?.locality]
+        .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
+    }))].sort((a, b) => a.localeCompare(b)),
+    state: [...new Set(customerUsers.flatMap((user) => {
+      const saved = user.customerAddress;
+      const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      return [saved?.state, resolved?.state]
+        .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
+    }))].sort((a, b) => a.localeCompare(b))
+  };
+  const visibleAddressFacets = customerAddressTypes.flatMap((type) => customerAddressFacets[type]
+    .filter((value) => value.toLowerCase().includes(customerAddressOptionSearch.trim().toLowerCase()))
+    .map((value) => ({ type, value, key: `${type}::${value}` })));
   const filteredUsers = customerUsers.filter((user) => {
     const address = customerAddressText(user);
+    const saved = user.customerAddress;
+    const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+    const addressTypeValues: Record<"area" | "city" | "state", string[]> = {
+      area: [saved?.line1, saved?.line2, saved?.landmark, resolved?.area, resolved?.route, resolved?.houseNumber, resolved?.locality, resolved?.city].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
+      city: [saved?.city, resolved?.city, resolved?.locality].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
+      state: [saved?.state, resolved?.state].filter((part): part is string => typeof part === "string" && Boolean(part?.trim()))
+    };
+    const selectedOptionsMatch = !selectedCustomerAddressOptions.length || selectedCustomerAddressOptions.some((option) => {
+      const [type, ...parts] = option.split("::");
+      return (addressTypeValues[type as "area" | "city" | "state"] ?? []).some((value) => value.toLowerCase() === parts.join("::").toLowerCase());
+    });
     const searchableText = [user.name, user.phone, user.email, user.id, user.role, user.accountStatus, user.darjiCustomerId, address]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
     const directoryTerm = customerDirectorySearch.trim().toLowerCase();
-    const addressTerm = customerAddressFilter.trim().toLowerCase();
     const matchesSearch = (!searchTerm || searchableText.includes(searchTerm)) && (!directoryTerm || searchableText.includes(directoryTerm));
-    const matchesAddress = !addressTerm || address.toLowerCase().includes(addressTerm);
     const matchesDrilldown = dashboardDrilldown?.target !== "users" || drilldownIdSet.has(user.id);
-    return matchesSearch && matchesAddress && matchesDrilldown;
+    return matchesSearch && selectedOptionsMatch && matchesDrilldown;
   });
 
   const filteredPayments = payments.filter((payment) => {
@@ -3466,10 +3522,22 @@ export function AdminPortal() {
                 <input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" placeholder="Name, customer ID, phone or address" value={customerDirectorySearch} onChange={(event) => setCustomerDirectorySearch(event.target.value)} />
               </Field>
               <Field label="Filter by address">
-                <div className="flex gap-2">
-                  <input aria-label="Search address areas or states" className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-white px-3" list="customer-address-suggestions" placeholder="Search city, area, state or pincode" value={customerAddressFilter} onChange={(event) => setCustomerAddressFilter(event.target.value)} />
-                  <datalist id="customer-address-suggestions">{addressSuggestions.map((address) => <option key={address} value={address} />)}</datalist>
-                  {customerAddressFilter ? <ActionButton variant="secondary" onClick={() => setCustomerAddressFilter("")}>Clear</ActionButton> : null}
+                <div className="relative">
+                  <button aria-expanded={customerAddressPickerOpen} className="flex h-11 w-full items-center justify-between rounded-xl border border-[var(--panel-border)] bg-white px-3 text-left text-sm" onClick={() => setCustomerAddressPickerOpen((open) => !open)} type="button">
+                    <span className={selectedCustomerAddressOptions.length ? "text-[var(--foreground)]" : "text-[var(--muted)]"}>{selectedCustomerAddressOptions.length ? `${selectedCustomerAddressOptions.length} address filter(s) selected` : "Choose area, city or state"}</span>
+                    <ChevronDown className={cn("transition-transform", customerAddressPickerOpen && "rotate-180")} size={16} />
+                  </button>
+                  {customerAddressPickerOpen ? <div className="absolute z-30 mt-2 w-full rounded-2xl border border-[var(--panel-border)] bg-white p-3 shadow-xl">
+                    <input aria-label="Search address options" autoFocus className="h-10 w-full rounded-lg border border-[var(--panel-border)] px-3 text-sm" placeholder="Search areas, cities or states" value={customerAddressOptionSearch} onChange={(event) => setCustomerAddressOptionSearch(event.target.value)} />
+                    <div className="mt-3 flex flex-wrap gap-3 border-b border-[var(--panel-border)] pb-3 text-sm">
+                      {([ ["area", "Area"], ["city", "City"], ["state", "State"] ] as const).map(([type, label]) => <label className="inline-flex items-center gap-2" key={type}><input checked={customerAddressTypes.includes(type)} onChange={() => setCustomerAddressTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} type="checkbox" />{label}</label>)}
+                      <button className="ml-auto text-xs font-semibold text-orange-700" onClick={() => setSelectedCustomerAddressOptions([])} type="button">Clear selections</button>
+                    </div>
+                    <div className="mt-2 max-h-56 overflow-y-auto">
+                      {visibleAddressFacets.map(({ type, value, key }) => <label className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-orange-50" key={key}><input checked={selectedCustomerAddressOptions.includes(key)} onChange={() => setSelectedCustomerAddressOptions((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} type="checkbox" /><span className="min-w-0 flex-1 truncate">{value}</span><span className="text-[10px] uppercase text-[var(--muted)]">{type}</span></label>)}
+                      {!visibleAddressFacets.length ? <p className="px-2 py-4 text-center text-sm text-[var(--muted)]">{customerAddressOptionSearch ? "No address options match this search." : "Address options are loading or unavailable."}</p> : null}
+                    </div>
+                  </div> : null}
                 </div>
               </Field>
             </Panel>
@@ -14384,20 +14452,35 @@ function getPartnerColumns({
   ];
 }
 
-const customerReverseGeocodeCache = new Map<string, string>();
+type ResolvedCustomerAddress = Awaited<ReturnType<typeof reverseGeocodeAdminLocation>>;
+
+function getSavedCustomerAddress(user: AdminUser) {
+  const address = user.customerAddress;
+  return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+    .filter((part) => typeof part === "string" && part.trim()).join(", ");
+}
+
+function getCustomerLocationKey(user: AdminUser) {
+  const coordinates = user.customerCurrentLocation?.coordinates;
+  const longitude = coordinates?.[0];
+  const latitude = coordinates?.[1];
+  return Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? `${Number(latitude).toFixed(5)},${Number(longitude).toFixed(5)}`
+    : "";
+}
+
+const customerReverseGeocodeCache = new Map<string, ResolvedCustomerAddress>();
 
 function CustomerAddressCell({ user, fullAddress }: { user: AdminUser; fullAddress: string }) {
   const coordinates = user.customerCurrentLocation?.coordinates;
   const longitude = coordinates?.[0];
   const latitude = coordinates?.[1];
-  const locationKey = Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? `${Number(latitude).toFixed(5)},${Number(longitude).toFixed(5)}`
-    : "";
-  const [resolvedAddress, setResolvedAddress] = useState(() => customerReverseGeocodeCache.get(locationKey) ?? "");
+  const locationKey = getCustomerLocationKey(user);
+  const [resolvedAddress, setResolvedAddress] = useState(() => customerReverseGeocodeCache.get(locationKey)?.formattedAddress ?? "");
 
   useEffect(() => {
     if (fullAddress || !locationKey) return;
-    const cachedAddress = customerReverseGeocodeCache.get(locationKey);
+    const cachedAddress = customerReverseGeocodeCache.get(locationKey)?.formattedAddress;
     if (cachedAddress) {
       setResolvedAddress(cachedAddress);
       return;
@@ -14408,7 +14491,7 @@ function CustomerAddressCell({ user, fullAddress }: { user: AdminUser; fullAddre
       .then((result) => {
         const value = result.formattedAddress?.trim() ?? "";
         if (!value) return;
-        customerReverseGeocodeCache.set(locationKey, value);
+        customerReverseGeocodeCache.set(locationKey, result);
         if (active) setResolvedAddress(value);
       })
       .catch(() => undefined);

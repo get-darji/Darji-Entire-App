@@ -283,7 +283,18 @@ export type AdminTailoringCheckoutResponse =
     };
 
 export async function reverseGeocodeAdminLocation(lat: number, lng: number) {
-  return unwrap<{ formattedAddress: string; latitude: number; longitude: number }>(
+  return unwrap<{
+    formattedAddress: string;
+    latitude: number;
+    longitude: number;
+    area?: string;
+    locality?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    route?: string;
+    houseNumber?: string;
+  }>(
     api.get("/location/reverse-geocode", { params: { lat, lng } })
   );
 }
