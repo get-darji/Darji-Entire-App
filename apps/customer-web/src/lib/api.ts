@@ -138,7 +138,9 @@ export const customerApi = {
   saveCurrentLocation: (latitude: number, longitude: number, accuracy?: number) =>
     request<{ updatedAt: string }>({ method: "PATCH", url: "/customers/me/location", data: { latitude, longitude, accuracy } }),
   reverseGeocode: (lat: number, lng: number) =>
-    request<{ formattedAddress: string; houseNumber: string; route: string; area: string; locality: string; city: string; state: string; postalCode: string; country: string }>({ method: "GET", url: `/location/reverse-geocode?lat=${lat}&lng=${lng}` })
+    request<{ formattedAddress: string; houseNumber: string; route: string; area: string; locality: string; city: string; state: string; postalCode: string; country: string }>({ method: "GET", url: `/location/reverse-geocode?lat=${lat}&lng=${lng}` }),
+  geocodeAddress: (address: string) => request<{ latitude: number; longitude: number }>({ method: "GET", url: `/location/geocode?address=${encodeURIComponent(address)}` }),
+  serviceAvailability: (latitude: number, longitude: number) => request<{ serviceable: boolean }>({ method: "GET", url: `/service-availability?latitude=${latitude}&longitude=${longitude}` })
 };
 
 export function errorMessage(error: unknown) {

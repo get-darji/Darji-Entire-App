@@ -24,6 +24,8 @@ async function fixture(route) {
   if (pathname === "/auth/me") data = user;
   else if (pathname === "/auth/request-otp") data = { expiresIn: 300 };
   else if (pathname === "/auth/verify-otp") data = { accessToken: "fixture-access", refreshToken: "fixture-refresh", user };
+  else if (pathname === "/location/geocode") data = { latitude: 28.6139, longitude: 77.2090 };
+  else if (pathname === "/service-availability") data = { serviceable: true, filteringEnabled: true };
   else if (pathname === "/tailoring-requests") {
     if (req.method() === "POST") {
       const body = req.postDataJSON();
@@ -52,7 +54,7 @@ async function fixture(route) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, ...(process.env.DARJI_PLAYWRIGHT_BROWSER_CHANNEL ? { channel: process.env.DARJI_PLAYWRIGHT_BROWSER_CHANNEL } : {}) });
   try {
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
       const context = await browser.newContext({ viewport });
@@ -77,11 +79,8 @@ async function fixture(route) {
       await page.getByRole("button", { name: "Remove media: test.png" }).waitFor();
       await page.getByRole("button", { name: "Remove media: test.png" }).click();
       assert.equal(await page.getByRole("button", { name: "Remove media: test.png" }).count(), 0, "Uploaded media was not removable");
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
-      await page.getByText("Upload at least one clothing photo or video.", { exact: true }).waitFor();
-      await page.locator('input[type="file"][accept*="image"]').first().setInputFiles({ name: "test.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=", "base64") });
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await page.getByRole("button", { name: "Men", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await page.getByRole("button", { name: "Shirt", exact: true }).click();
       await page.getByRole("button", { name: "New Stitching", exact: true }).click();
       await page.getByRole("checkbox", { name: "Stitch from Fabric", exact: true }).check();

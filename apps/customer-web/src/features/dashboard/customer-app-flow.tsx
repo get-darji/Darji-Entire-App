@@ -420,9 +420,9 @@ function payloadForClothingItem(item: ClothingItemDraft) {
   return {
     description: item.description,
     gender: item.gender,
-    clothType: item.clothType,
-    workType: item.workType,
-    serviceCategory: item.workType,
+    clothType: item.clothType || "Custom Garment",
+    workType: item.workType || "Customer Request",
+    serviceCategory: item.workType || "Other",
     selectedWorkItems: item.selectedWorkItems ?? [],
     otherWorkDescription: item.otherWorkDescription,
     measurement: item.clothType
@@ -558,7 +558,7 @@ async function openRazorpay(
   requestId: string,
   razorpay: Extract<CheckoutResponse, { mode: "online" }>["razorpay"],
   onStartVerification: () => void,
-  onVerified: () => Promise<void>,
+  onVerified: (request: TailoringRequest) => Promise<void>,
   onError: (err: unknown) => void
 ) {
   if (typeof window === "undefined") return;
@@ -577,8 +577,8 @@ async function openRazorpay(
       handler: async (payment: unknown) => {
         try {
           onStartVerification();
-          await customerApi.verifyCheckout(requestId, payment);
-          await onVerified();
+          const verifiedRequest = await customerApi.verifyCheckout(requestId, payment);
+          await onVerified(verifiedRequest);
         } catch (err) {
           onError(err);
         }
@@ -1177,6 +1177,7 @@ function NewRequestStep({
   const [locationStatus, setLocationStatus] = useState<string>();
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "ready">("idle");
   const [uploadError, setUploadError] = useState<string>();
+  const [availabilityChecking, setAvailabilityChecking] = useState(false);
   const uploadVersion = useRef(0);
   const uploadController = useRef<AbortController | null>(null);
   const advanceAfterUpload = useRef(false);
@@ -1245,21 +1246,37 @@ function NewRequestStep({
     startUpload(remaining);
   }
 
-  function continueToIssue() {
+  async function continueToIssue() {
     setFormError(undefined);
-    if (!draft.description.trim() || draft.description.trim().length < 10) {
-      setFormError("Add at least 10 characters about the clothing issue.");
+    if (!draft.gender) {
+      setFormError("Select who this request is for.");
+      return;
+    }
+    if (draft.description.trim().length < 10 && !draft.voiceNotes?.length) {
+      setFormError("Add at least 10 characters of instructions or a voice note.");
       return;
     }
     if (!draft.pickup.trim() || draft.pickup.trim().length < 8) {
       setFormError("Add a pickup address before continuing.");
       return;
     }
-    if (!draft.media.length && !draft.uploadedMedia.length) {
-      setFormError("Upload at least one clothing photo or video.");
+    try {
+      setAvailabilityChecking(true);
+      const point = draft.pickupLocation ?? await customerApi.geocodeAddress(draft.pickup).then((result) => ({ lat: result.latitude, lng: result.longitude }));
+      if (!point) throw new Error("Could not locate the pickup address. Add the city or state and try again.");
+      const availability = await customerApi.serviceAvailability(point.lat, point.lng);
+      if (!availability.serviceable) {
+        setFormError("Pickup is outside our current service area. Choose another address.");
+        return;
+      }
+      if (!draft.pickupLocation) setDraft((current) => ({ ...current, pickupLocation: point }));
+    } catch (error) {
+      setFormError(errorMessage(error));
       return;
+    } finally {
+      setAvailabilityChecking(false);
     }
-    if (draft.uploadedMedia.length && !draft.media.length) {
+    if (!draft.media.length) {
       setScreen("clothIssue");
       return;
     }
@@ -1323,6 +1340,7 @@ function NewRequestStep({
       <div className="grid gap-6 lg:grid-cols-[1fr_360px] text-left">
         <section className="premium-card rounded-[2rem] p-6">
           <div className="grid gap-5">
+            <ChipGroup label={uiText("Fit Type")} options={genderOptions} value={draft.gender} onChange={(value) => setDraft((current) => ({ ...current, gender: value, clothType: undefined, measurements: {} }))} />
             <div className="flex flex-col gap-1.5 text-left mb-2">
               <h3 className="text-lg font-black text-[var(--darji-ink)]">{uiText("What's the issue with your clothing?")}</h3>
               <p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Describe the issue or alteration you need.")}</p>
@@ -1332,12 +1350,12 @@ function NewRequestStep({
               <textarea
                 className={`${inputClass} min-h-32 py-4 pr-12`}
                 value={draft.description}
-                maxLength={300}
+                maxLength={1000}
                 onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
                 placeholder={uiText("Example: sleeves are loose, waist needs fitting, zip repair, or custom stitching details.")}
               />
               <div className="text-right text-xs font-bold text-slate-400 mt-1.5">
-                {draft.description.length}/300
+                {draft.description.length}/1000
               </div>
             </div>
 
@@ -1400,8 +1418,8 @@ function NewRequestStep({
             {formError || uploadError ? <p role="alert" className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{uiText(formError ?? uploadError ?? "")}</p> : null}
             
             <div className="flex flex-col gap-3 sm:flex-row mt-4">
-              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" onClick={continueToIssue}>
-                {uiText("Continue")} <ChevronRight className="h-4 w-4" />
+              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" disabled={availabilityChecking} onClick={() => void continueToIssue()}>
+                {uiText(availabilityChecking ? "Checking area..." : "Continue")} <ChevronRight className="h-4 w-4" />
               </Button>
               {draft.items.length ? <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)]" variant="secondary" onClick={() => setScreen("summary")}>{uiText("Back to Summary")}</Button> : null}
             </div>
@@ -1440,16 +1458,12 @@ function ClothIssueStep({
 
   async function saveItem(action: SaveAction) {
     setFormError(undefined);
-    if (draft.workType === "Other" ? !draft.otherWorkDescription?.trim() : !draft.selectedWorkItems?.length) {
-      setFormError("Select the work you need");
-      return;
-    }
     if (draft.homeMeasurementBooked && !draft.preferredMeasurementSlot) {
       setFormError("Select a measurement visit time slot");
       return;
     }
-    if (!draft.gender || !draft.clothType || !draft.workType || !draft.urgency) {
-      setFormError("Select gender, cloth type, work type, and urgency.");
+    if (!draft.gender || !draft.urgency) {
+      setFormError("Select who the request is for and the delivery timing.");
       return;
     }
     const hasMeasurement = showManual || draft.sampleProvided || draft.homeMeasurementBooked;
@@ -1457,8 +1471,8 @@ function ClothIssueStep({
       setFormError("Please select at least one measurement option: Enter manual measurements, Send a sample, or Book home measurement.");
       return;
     }
-    if (!draft.description.trim() || (!draft.uploadedMedia.length && !draft.media.length)) {
-      setFormError("The item needs description and uploaded clothing media.");
+    if (draft.description.trim().length < 10 && !draft.voiceNotes?.length) {
+      setFormError("The item needs at least 10 characters of instructions or a voice note.");
       return;
     }
     try {
@@ -1486,7 +1500,6 @@ function ClothIssueStep({
       <div className="grid gap-6 xl:grid-cols-[1fr_370px] text-left">
         <section className="premium-card rounded-[2rem] p-6">
           <div className="grid gap-6">
-            <ChipGroup label={uiText("Gender")} options={genderOptions} value={draft.gender} onChange={(value) => setDraft((current) => ({ ...current, gender: value, clothType: undefined, measurements: {} }))} />
             <ChipGroup label={uiText("Cloth Type")} options={[...getGarmentsForGender(draft.gender)]} value={draft.clothType} onChange={(value) => setDraft((current) => ({ ...current, clothType: value, measurements: {} }))} />
             <ChipGroup label={uiText("Work Type")} options={workTypes} value={draft.workType} onChange={(value) => setDraft((current) => ({ ...current, workType: value, selectedWorkItems: [], homeMeasurementBooked: value === "New Stitching" || current.homeMeasurementBooked }))} />
             {draft.workType === "Other" ? <textarea aria-label={uiText("Work details")} placeholder={uiText("Work details")} className={inputClass} value={draft.otherWorkDescription ?? ""} maxLength={1000} onChange={(event) => setDraft((current) => ({ ...current, otherWorkDescription: event.target.value }))} /> : <div className="grid gap-3 sm:grid-cols-2">{getServiceCategory(draft.workType)?.workItems.map((work) => <label key={work} className="flex items-center gap-3 rounded-lg border bg-white p-3"><input className="h-5 w-5 accent-amber-500" type="checkbox" checked={draft.selectedWorkItems?.includes(work) ?? false} onChange={(event) => setDraft((current) => ({ ...current, selectedWorkItems: event.target.checked ? [...current.selectedWorkItems ?? [], work] : current.selectedWorkItems?.filter((item) => item !== work) }))} />{uiText(work)}</label>)}</div>}
@@ -1956,15 +1969,17 @@ function OrderSummaryStep({
     mutationFn: async () => {
       if (!items.length) throw new Error("Add at least one clothing item.");
       if (!draft.urgency || draft.pickup.trim().length < 8) throw new Error("Pickup address and urgency are required.");
-      const incomplete = items.find((item) => !item.description.trim() || !item.clothType || !item.workType || !item.uploadedMedia.length);
-      if (incomplete) throw new Error(`${clothingItemTitle(incomplete)} needs photos, description, cloth type, and work type.`);
+      const incomplete = items.find((item) => item.description.trim().length < 10 && !item.voiceNotes?.length);
+      if (incomplete) throw new Error(`${clothingItemTitle(incomplete)} needs instructions or a voice note.`);
       const itemPayloads = items.map(payloadForClothingItem);
       const primary = itemPayloads[0];
+      const preferredMeasurementSlot = items.find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot;
       return customerApi.createTailoringRequest({
         ...primary,
         urgency: draft.urgency,
         pickupAddress: draft.pickup,
         pickupLocation: draft.pickupLocation,
+        preferredMeasurementSlot,
         items: itemPayloads
       });
     },
@@ -2259,15 +2274,24 @@ function ConfirmOrderStep({
           () => {
             setVerifyingPayment(true);
           },
-          async () => {
+          async (verifiedRequest) => {
             await queryClient.invalidateQueries({ queryKey: ["customer", "requests"] });
             setDraft(makeEmptyDraft(defaultPickup));
             setVerifyingPayment(false);
-            onOrderPlaced(response.request);
+            onOrderPlaced(verifiedRequest);
           },
-          (err) => {
-            setVerifyingPayment(false);
-            void prompt("Something went wrong", errorMessage(err));
+          async (err) => {
+            try {
+              const recovered = await customerApi.recoverCheckout(response.request.id);
+              if (recovered.status === "paid" && recovered.request) {
+                await queryClient.invalidateQueries({ queryKey: ["customer", "requests"] });
+                setDraft(makeEmptyDraft(defaultPickup));
+                onOrderPlaced(recovered.request);
+                return;
+              }
+            } catch { /* Keep the request available for retry. */ }
+            finally { setVerifyingPayment(false); }
+            void prompt("Payment not confirmed", errorMessage(err));
           }
         );
       } else {

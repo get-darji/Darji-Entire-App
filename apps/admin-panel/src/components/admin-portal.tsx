@@ -2678,6 +2678,20 @@ export function AdminPortal() {
     const matchesDrilldown = dashboardDrilldown?.target !== "users" || drilldownIdSet.has(user.id);
     return matchesSearch && selectedOptionsMatch && matchesDrilldown;
   });
+  const topCustomerRegions = (kind: "city" | "state") => {
+    const counts = new Map<string, { label: string; count: number }>();
+    customerUsers.forEach((user) => {
+      const resolved = user.customerLocationAddress ?? resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
+      const label = (resolved?.[kind] || user.customerAddress?.[kind] || "").trim();
+      if (!label) return;
+      const key = normalizeAddressRegion(label);
+      const current = counts.get(key);
+      counts.set(key, { label: current?.label ?? label, count: (current?.count ?? 0) + 1 });
+    });
+    return [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)).slice(0, 5);
+  };
+  const topCustomerCities = topCustomerRegions("city");
+  const topCustomerStates = topCustomerRegions("state");
 
   const filteredPayments = payments.filter((payment) => {
     const content = [
@@ -3541,6 +3555,11 @@ export function AdminPortal() {
                   </div> : null}
                 </div>
               </Field>
+            </Panel>
+            <Panel className="grid gap-4 p-4 md:grid-cols-3">
+              <div><p className="text-xs font-semibold text-[var(--muted)]">Customers matching filters</p><p className="mt-1 text-2xl font-bold">{filteredUsers.length}</p><p className="text-xs text-[var(--muted)]">of {customerUsers.length} customers</p></div>
+              <div><p className="text-xs font-semibold text-[var(--muted)]">Top 5 cities</p><div className="mt-2 space-y-1 text-sm">{topCustomerCities.map((item) => <p className="flex justify-between gap-3" key={item.label}><span>{item.label}</span><strong>{item.count}</strong></p>)}{!topCustomerCities.length ? <p className="text-[var(--muted)]">No city data yet</p> : null}</div></div>
+              <div><p className="text-xs font-semibold text-[var(--muted)]">Top 5 states</p><div className="mt-2 space-y-1 text-sm">{topCustomerStates.map((item) => <p className="flex justify-between gap-3" key={item.label}><span>{item.label}</span><strong>{item.count}</strong></p>)}{!topCustomerStates.length ? <p className="text-[var(--muted)]">No state data yet</p> : null}</div></div>
             </Panel>
             <DataTable columns={userColumns} data={filteredUsers} emptyMessage="No customers match the current search." />
           </div>
