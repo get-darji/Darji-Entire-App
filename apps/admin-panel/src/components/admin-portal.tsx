@@ -877,7 +877,7 @@ export function AdminPortal() {
   useEffect(() => {
     if (activeSection !== "users") return;
     let active = true;
-    const customersToResolve = (usersQuery.data ?? []).filter((user) => !getSavedCustomerAddress(user) && getCustomerLocationKey(user));
+    const customersToResolve = (usersQuery.data ?? []).filter((user) => getCustomerLocationKey(user));
     void Promise.all(customersToResolve.map(async (user) => {
       const key = getCustomerLocationKey(user);
       if (!key) return null;
@@ -2643,7 +2643,7 @@ export function AdminPortal() {
     city: [...new Set(customerUsers.flatMap((user) => {
       const saved = user.customerAddress;
       const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
-      return [saved?.city, resolved?.city, resolved?.locality]
+      return [saved?.city, resolved?.city, resolved?.locality, saved?.state, resolved?.state]
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim());
     }))].sort((a, b) => a.localeCompare(b)),
     state: [...new Set(customerUsers.flatMap((user) => {
@@ -2662,12 +2662,12 @@ export function AdminPortal() {
     const resolved = resolvedCustomerAddresses[getCustomerLocationKey(user) ?? ""];
     const addressTypeValues: Record<"area" | "city" | "state", string[]> = {
       area: [saved?.line1, saved?.line2, saved?.landmark, resolved?.area, resolved?.route, resolved?.houseNumber, resolved?.locality, resolved?.city].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
-      city: [saved?.city, resolved?.city, resolved?.locality].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
+      city: [saved?.city, resolved?.city, resolved?.locality, saved?.state, resolved?.state].filter((part): part is string => typeof part === "string" && Boolean(part?.trim())),
       state: [saved?.state, resolved?.state].filter((part): part is string => typeof part === "string" && Boolean(part?.trim()))
     };
     const selectedOptionsMatch = !selectedCustomerAddressOptions.length || selectedCustomerAddressOptions.some((option) => {
       const [type, ...parts] = option.split("::");
-      return (addressTypeValues[type as "area" | "city" | "state"] ?? []).some((value) => value.toLowerCase() === parts.join("::").toLowerCase());
+      return (addressTypeValues[type as "area" | "city" | "state"] ?? []).some((value) => normalizeAddressRegion(value) === normalizeAddressRegion(parts.join("::")));
     });
     const searchableText = [user.name, user.phone, user.email, user.id, user.role, user.accountStatus, user.darjiCustomerId, address]
       .filter(Boolean)
@@ -14454,10 +14454,11 @@ function getPartnerColumns({
 
 type ResolvedCustomerAddress = Awaited<ReturnType<typeof reverseGeocodeAdminLocation>>;
 
-function getSavedCustomerAddress(user: AdminUser) {
-  const address = user.customerAddress;
-  return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
-    .filter((part) => typeof part === "string" && part.trim()).join(", ");
+function normalizeAddressRegion(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return ["delhi", "new delhi", "nct of delhi", "delhi nct", "national capital territory of delhi"].includes(normalized)
+    ? "delhi"
+    : normalized;
 }
 
 function getCustomerLocationKey(user: AdminUser) {
