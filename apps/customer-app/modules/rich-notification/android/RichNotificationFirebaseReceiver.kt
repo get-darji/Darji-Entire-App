@@ -10,9 +10,10 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.bumptech.glide.Glide
+import com.bumptech.glide.request.FutureTarget
 import java.util.concurrent.Executors
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 class RichNotificationFirebaseReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
@@ -41,25 +42,25 @@ class RichNotificationFirebaseReceiver : BroadcastReceiver() {
     val pending = PendingIntent.getActivity(context, data.hashCode(), launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     val icon = context.applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.stat_notify_more
     val builder = NotificationCompat.Builder(context, channelId).setSmallIcon(icon).setLargeIcon(BitmapFactory.decodeResource(context.resources, icon)).setColor(0xFFF98A04.toInt()).setContentTitle(title).setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body)).setContentIntent(pending).addAction(android.R.drawable.ic_menu_view, "View", pending).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH)
-    bitmap(data["largeIconUrl"]).let { if (it != null) builder.setLargeIcon(it) }
-    bitmap(data["imageUrl"]).let { if (it != null) builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(it).bigLargeIcon(null as android.graphics.Bitmap?)) }
+    bitmap(context, data["largeIconUrl"], 128, 128).let { if (it != null) builder.setLargeIcon(it) }
+    bitmap(context, data["imageUrl"], 512, 512).let { if (it != null) builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(it).bigLargeIcon(null as android.graphics.Bitmap?)) }
     manager.notify((data["campaignId"] ?: title).hashCode() and Int.MAX_VALUE, builder.build())
   }
 
-  private fun bitmap(rawUrl: String?): android.graphics.Bitmap? {
+  private fun bitmap(context: Context, rawUrl: String?, width: Int, height: Int): android.graphics.Bitmap? {
     if (rawUrl.isNullOrBlank() || !rawUrl.startsWith("https://")) return null
+    var target: FutureTarget<android.graphics.Bitmap>? = null
     return try {
-      (URL(rawUrl).openConnection() as HttpURLConnection).run {
-        connectTimeout = 3_500
-        readTimeout = 3_500
-        instanceFollowRedirects = true
-        try {
-          if (responseCode !in 200..299) null else inputStream.use { BitmapFactory.decodeStream(it) }
-        } finally {
-          disconnect()
-        }
-      }
-    } catch (_: Exception) { null }
+      target = Glide.with(context.applicationContext)
+        .asBitmap()
+        .load(rawUrl)
+        .submit(width, height)
+      target.get(3_000, TimeUnit.MILLISECONDS).copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+    } catch (_: Exception) {
+      null
+    } finally {
+      target?.let { Glide.with(context.applicationContext).clear(it) }
+    }
   }
 
   companion object {

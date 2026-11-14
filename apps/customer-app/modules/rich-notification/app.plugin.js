@@ -1,4 +1,4 @@
-const { withAndroidManifest, withDangerousMod } = require("@expo/config-plugins");
+const { withAndroidManifest, withAppBuildGradle, withDangerousMod } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
@@ -8,6 +8,16 @@ module.exports = function withRichNotificationRenderer(config) {
     if (app && !(app.receiver || []).some((item) => item?.$?.["android:name"] === ".RichNotificationFirebaseReceiver")) {
       app.receiver = app.receiver || [];
       app.receiver.push({ $: { "android:name": ".RichNotificationFirebaseReceiver", "android:exported": "true", "android:permission": "com.google.android.c2dm.permission.SEND" }, "intent-filter": [{ $: { "android:priority": "998" }, action: [{ $: { "android:name": "com.google.android.c2dm.intent.RECEIVE" } }] }] });
+    }
+    return mod;
+  });
+  config = withAppBuildGradle(config, (mod) => {
+    const dependency = 'implementation("com.github.bumptech.glide:glide:4.16.0")';
+    if (!mod.modResults.contents.includes("com.github.bumptech.glide:glide")) {
+      mod.modResults.contents = mod.modResults.contents.replace(
+        /dependencies\s*\{/,
+        (block) => `${block}\n    ${dependency}`,
+      );
     }
     return mod;
   });

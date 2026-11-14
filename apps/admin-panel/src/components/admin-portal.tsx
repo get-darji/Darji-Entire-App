@@ -633,6 +633,8 @@ export function AdminPortal() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [customerDirectorySearch, setCustomerDirectorySearch] = useState("");
+  const [customerAddressFilter, setCustomerAddressFilter] = useState("");
   const [tailorDirectorySearch, setTailorDirectorySearch] = useState("");
   const [partnerDirectorySearch, setPartnerDirectorySearch] = useState("");
   const [mapPartnerFocus, setMapPartnerFocus] = useState<MapPartnerFocus | null>(null);
@@ -2595,14 +2597,30 @@ export function AdminPortal() {
     return matchesSearch && matchesDirectorySearch && matchesDrilldown;
   });
 
+  const customerAddressText = (user: AdminUser) => {
+    const address = user.customerAddress;
+    return [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join(", ");
+  };
+  const addressSuggestions = [...new Set(customerUsers.flatMap((user) => {
+    const address = user.customerAddress;
+    return [address?.line1, address?.line2, address?.city, address?.state, address?.landmark, address?.pincode]
+      .filter((part): part is string => typeof part === "string" && Boolean(part.trim()))
+      .map((part) => part.trim());
+  }))].sort((a, b) => a.localeCompare(b));
   const filteredUsers = customerUsers.filter((user) => {
-    const matchesSearch = !searchTerm || [user.name, user.phone, user.email, user.role, user.accountStatus, user.darjiCustomerId]
+    const address = customerAddressText(user);
+    const searchableText = [user.name, user.phone, user.email, user.id, user.role, user.accountStatus, user.darjiCustomerId, address]
       .filter(Boolean)
       .join(" ")
-      .toLowerCase()
-      .includes(searchTerm);
+      .toLowerCase();
+    const directoryTerm = customerDirectorySearch.trim().toLowerCase();
+    const addressTerm = customerAddressFilter.trim().toLowerCase();
+    const matchesSearch = (!searchTerm || searchableText.includes(searchTerm)) && (!directoryTerm || searchableText.includes(directoryTerm));
+    const matchesAddress = !addressTerm || address.toLowerCase().includes(addressTerm);
     const matchesDrilldown = dashboardDrilldown?.target !== "users" || drilldownIdSet.has(user.id);
-    return matchesSearch && matchesDrilldown;
+    return matchesSearch && matchesAddress && matchesDrilldown;
   });
 
   const filteredPayments = payments.filter((payment) => {
@@ -3443,6 +3461,18 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <Panel className="grid gap-3 p-4 md:grid-cols-2">
+              <Field label="Search customers">
+                <input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" placeholder="Name, customer ID, phone or address" value={customerDirectorySearch} onChange={(event) => setCustomerDirectorySearch(event.target.value)} />
+              </Field>
+              <Field label="Filter by address">
+                <div className="flex gap-2">
+                  <input aria-label="Search address areas or states" className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-white px-3" list="customer-address-suggestions" placeholder="Search city, area, state or pincode" value={customerAddressFilter} onChange={(event) => setCustomerAddressFilter(event.target.value)} />
+                  <datalist id="customer-address-suggestions">{addressSuggestions.map((address) => <option key={address} value={address} />)}</datalist>
+                  {customerAddressFilter ? <ActionButton variant="secondary" onClick={() => setCustomerAddressFilter("")}>Clear</ActionButton> : null}
+                </div>
+              </Field>
+            </Panel>
             <DataTable columns={userColumns} data={filteredUsers} emptyMessage="No customers match the current search." />
           </div>
         ) : null}
@@ -9790,7 +9820,13 @@ function CouponComposer({
 }) {
   const [customerSearch, setCustomerSearch] = useState("");
   const [randomCount, setRandomCount] = useState("10");
-  const visibleCustomers = customers.filter((customer) => `${customer.name ?? ""} ${customer.phone ?? ""} ${customer.darjiCustomerId ?? ""}`.toLowerCase().includes(customerSearch.toLowerCase())).slice(0, 100);
+  const visibleCustomers = customers.filter((customer) => {
+    const address = customer.customerAddress;
+    const searchableCustomer = [customer.name, customer.phone, customer.email, customer.id, customer.darjiCustomerId,
+      address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+      .filter(Boolean).join(" ").toLowerCase();
+    return searchableCustomer.includes(customerSearch.trim().toLowerCase());
+  }).slice(0, 100);
   const valueRequired = ["ORDER_FLAT", "ORDER_PERCENTAGE", "DELIVERY_PERCENTAGE"].includes(draft.benefitType);
   const toggleValue = <T extends string>(values: T[], value: T) => values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
   return (
@@ -9849,7 +9885,7 @@ function CouponComposer({
                 {draft.audienceType === "INACTIVE_CUSTOMERS" ? <Field label="Inactive for at least (days)"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" type="number" value={draft.inactiveDays} onChange={(event) => onChange({ ...draft, inactiveDays: event.target.value })} /></Field> : null}
                 {draft.audienceType === "REGISTERED_BETWEEN" ? <><Field label="Registered after"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.registeredAfter} onChange={(event) => onChange({ ...draft, registeredAfter: event.target.value })} /></Field><Field label="Registered before"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.registeredBefore} onChange={(event) => onChange({ ...draft, registeredBefore: event.target.value })} /></Field></> : null}
               </div>
-              {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4 rounded-2xl border border-[var(--panel-border)] bg-white p-4"><div className="flex flex-wrap items-end gap-3"><Field label="Search customers"><input className="h-11 rounded-xl border border-[var(--panel-border)] px-3" placeholder="Name, phone or customer ID" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Random customer count"><input className="h-11 w-32 rounded-xl border border-[var(--panel-border)] px-3" min="1" type="number" value={randomCount} onChange={(event) => setRandomCount(event.target.value)} /></Field><ActionButton onClick={() => { const shuffled = [...customers].sort(() => Math.random() - 0.5); onChange({ ...draft, selectedCustomerIds: shuffled.slice(0, Math.min(Number(randomCount) || 1, customers.length)).map((customer) => customer.id) }); }} variant="secondary">Select random</ActionButton></div><p className="mt-3 text-xs text-[var(--muted)]">{draft.selectedCustomerIds.length} customer(s) selected</p><div className="mt-3 max-h-48 space-y-2 overflow-y-auto">{visibleCustomers.map((customer) => <label className="flex items-center justify-between rounded-xl border border-[var(--panel-border)] px-3 py-2 text-sm" key={customer.id}><span><span className="font-semibold">{getCustomerDisplayName(customer)}</span><span className="ml-2 text-[var(--muted)]">{customer.darjiCustomerId ?? customer.phone}</span></span><input checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => onChange({ ...draft, selectedCustomerIds: toggleValue(draft.selectedCustomerIds, customer.id) })} type="checkbox" /></label>)}</div></div> : null}
+              {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4 rounded-2xl border border-[var(--panel-border)] bg-white p-4"><div className="flex flex-wrap items-end gap-3"><Field label="Search customers"><input className="h-11 min-w-[280px] rounded-xl border border-[var(--panel-border)] px-3" placeholder="Name, customer ID, phone or address" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Random customer count"><input className="h-11 w-32 rounded-xl border border-[var(--panel-border)] px-3" min="1" type="number" value={randomCount} onChange={(event) => setRandomCount(event.target.value)} /></Field><ActionButton onClick={() => { const shuffled = [...customers].sort(() => Math.random() - 0.5); onChange({ ...draft, selectedCustomerIds: shuffled.slice(0, Math.min(Number(randomCount) || 1, customers.length)).map((customer) => customer.id) }); }} variant="secondary">Select random</ActionButton></div><p className="mt-3 text-xs text-[var(--muted)]">{draft.selectedCustomerIds.length} customer(s) selected</p><div className="mt-3 max-h-48 space-y-2 overflow-y-auto">{visibleCustomers.map((customer) => { const address = customer.customerAddress; const addressLabel = [address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode].filter(Boolean).join(", "); return <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] px-3 py-2 text-sm" key={customer.id}><span className="min-w-0"><span className="block font-semibold">{getCustomerDisplayName(customer)}</span><span className="block text-xs font-semibold text-orange-700">Customer ID: {customer.darjiCustomerId ?? "Pending"}</span><span className="block truncate text-xs text-[var(--muted)]">{customer.phone}{addressLabel ? ` · ${addressLabel}` : ""}</span></span><input aria-label={`Assign coupon to ${getCustomerDisplayName(customer)} (${customer.darjiCustomerId ?? customer.id})`} checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => onChange({ ...draft, selectedCustomerIds: toggleValue(draft.selectedCustomerIds, customer.id) })} type="checkbox" /></label>; })}{!visibleCustomers.length ? <p className="py-5 text-center text-sm text-[var(--muted)]">No customers match this search.</p> : null}</div></div> : null}
             </div>
 
             <div className="rounded-[24px] border border-[var(--panel-border)] bg-[#fbfdff] p-5">
@@ -9881,6 +9917,13 @@ function CouponEditDialog({ coupon, customers, onClose, onSave, pending }: {
   pending: boolean;
 }) {
   const [draft, setDraft] = useState<CouponFormDraft>(emptyCouponDraft);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const matchingCustomers = customers.filter((customer) => {
+    const address = customer.customerAddress;
+    return [customer.name, customer.phone, customer.email, customer.id, customer.darjiCustomerId,
+      address?.line1, address?.line2, address?.landmark, address?.city, address?.state, address?.pincode]
+      .filter(Boolean).join(" ").toLowerCase().includes(customerSearch.trim().toLowerCase());
+  });
   useEffect(() => {
     if (!coupon) return;
     setDraft({
@@ -9935,7 +9978,7 @@ function CouponEditDialog({ coupon, customers, onClose, onSave, pending }: {
             {draft.audienceType === "INACTIVE_CUSTOMERS" ? <Field label="Inactive days"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="number" value={draft.inactiveDays} onChange={(event) => setDraft({ ...draft, inactiveDays: event.target.value })} /></Field> : null}
             {draft.audienceType === "REGISTERED_BETWEEN" ? <><Field label="Registered after"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.registeredAfter} onChange={(event) => setDraft({ ...draft, registeredAfter: event.target.value })} /></Field><Field label="Registered before"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.registeredBefore} onChange={(event) => setDraft({ ...draft, registeredBefore: event.target.value })} /></Field></> : null}
           </div>
-          {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4 max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-[var(--panel-border)] p-3">{customers.map((customer) => <label className="flex items-center justify-between rounded-xl px-2 py-1 text-sm" key={customer.id}><span>{getCustomerDisplayName(customer)} <span className="text-[var(--muted)]">{customer.darjiCustomerId ?? customer.phone}</span></span><input checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => setDraft({ ...draft, selectedCustomerIds: draft.selectedCustomerIds.includes(customer.id) ? draft.selectedCustomerIds.filter((id) => id !== customer.id) : [...draft.selectedCustomerIds, customer.id] })} type="checkbox" /></label>)}</div> : null}
+          {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4"><Field label="Search customers"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] px-3" placeholder="Name, customer ID, phone or address" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-[var(--panel-border)] p-3">{matchingCustomers.map((customer) => <label className="flex items-center justify-between gap-3 rounded-xl px-2 py-1 text-sm" key={customer.id}><span><span className="block font-semibold">{getCustomerDisplayName(customer)}</span><span className="block text-xs font-semibold text-orange-700">Customer ID: {customer.darjiCustomerId ?? "Pending"}</span><span className="block text-xs text-[var(--muted)]">{customer.phone}</span></span><input aria-label={`Assign coupon to ${getCustomerDisplayName(customer)} (${customer.darjiCustomerId ?? customer.id})`} checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => setDraft({ ...draft, selectedCustomerIds: draft.selectedCustomerIds.includes(customer.id) ? draft.selectedCustomerIds.filter((id) => id !== customer.id) : [...draft.selectedCustomerIds, customer.id] })} type="checkbox" /></label>)}{!matchingCustomers.length ? <p className="py-4 text-center text-sm text-[var(--muted)]">No customers match this search.</p> : null}</div></div> : null}
           <label className="mt-4 flex items-center gap-3 text-sm font-semibold"><input checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} type="checkbox" />Coupon active</label>
           <div className="mt-6 flex justify-end gap-3"><ActionButton disabled={pending} onClick={onClose} variant="secondary">Cancel</ActionButton><ActionButton disabled={pending || draft.description.trim().length < 3} onClick={() => onSave({ description: draft.description, benefitType: draft.benefitType, discountType: couponDiscountType(draft.benefitType), discountValue: draft.discountValue, minOrderValue: draft.minOrderValue, maxDiscount: draft.maxDiscount ? Number(draft.maxDiscount) : null, usageLimit: draft.usageLimit ? Number(draft.usageLimit) : null, perCustomerLimit: draft.perCustomerLimit ? Number(draft.perCustomerLimit) : null, maxCampaignDiscount: draft.maxCampaignDiscount ? Number(draft.maxCampaignDiscount) : null, startsAt: draft.startsAt ? new Date(draft.startsAt).toISOString() : null, expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : null, orderEligibilityType: draft.orderEligibilityType, orderNumber: draft.orderNumber ? Number(draft.orderNumber) : null, orderNumberFrom: draft.orderNumberFrom ? Number(draft.orderNumberFrom) : null, orderNumberTo: draft.orderNumberTo ? Number(draft.orderNumberTo) : null, audienceType: draft.audienceType, selectedCustomerIds: draft.selectedCustomerIds, inactiveDays: draft.inactiveDays ? Number(draft.inactiveDays) : null, registeredAfter: draft.registeredAfter ? new Date(draft.registeredAfter).toISOString() : null, registeredBefore: draft.registeredBefore ? new Date(draft.registeredBefore).toISOString() : null, orderScope: draft.orderScope, allowedDeliveryModes: draft.allowedDeliveryModes, allowedPaymentMethods: draft.allowedPaymentMethods, isActive: draft.isActive })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save coupon</ActionButton></div>
         </Dialog.Content>
