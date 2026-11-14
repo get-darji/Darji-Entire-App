@@ -873,6 +873,31 @@ export function AdminPortal() {
     queryFn: getUsers,
     enabled: needsSection("dashboard", "orders", "users", "roles", "notifications", "exports") || createOrderOpen
   });
+  const customerLocationsSignature = (usersQuery.data ?? []).map((user) => getCustomerLocationKey(user)).filter(Boolean).join("|");
+  useEffect(() => {
+    if (activeSection !== "users") return;
+    let active = true;
+    const customersToResolve = (usersQuery.data ?? []).filter((user) => !getSavedCustomerAddress(user) && getCustomerLocationKey(user));
+    void Promise.all(customersToResolve.map(async (user) => {
+      const key = getCustomerLocationKey(user);
+      if (!key) return null;
+      const cached = customerReverseGeocodeCache.get(key);
+      if (cached) return [key, cached] as const;
+      const coordinates = user.customerCurrentLocation?.coordinates;
+      if (!coordinates) return null;
+      try {
+        const result = await reverseGeocodeAdminLocation(Number(coordinates[1]), Number(coordinates[0]));
+        customerReverseGeocodeCache.set(key, result);
+        return [key, result] as const;
+      } catch {
+        return null;
+      }
+    })).then((results) => {
+      if (!active) return;
+      setResolvedCustomerAddresses((current) => ({ ...current, ...Object.fromEntries(results.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))) }));
+    });
+    return () => { active = false; };
+  }, [activeSection, customerLocationsSignature]);
   const adminAccessQuery = useQuery({
     queryKey: ["admin", "admin-access"],
     queryFn: getAdminAccess,
@@ -1996,31 +2021,6 @@ export function AdminPortal() {
 
     return directory.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   })();
-  const customerLocationsSignature = customerUsers.map((user) => getCustomerLocationKey(user)).filter(Boolean).join("|");
-  useEffect(() => {
-    if (activeSection !== "users") return;
-    let active = true;
-    const customersToResolve = customerUsers.filter((user) => !getSavedCustomerAddress(user) && getCustomerLocationKey(user));
-    void Promise.all(customersToResolve.map(async (user) => {
-      const key = getCustomerLocationKey(user);
-      if (!key) return null;
-      const cached = customerReverseGeocodeCache.get(key);
-      if (cached) return [key, cached] as const;
-      const coordinates = user.customerCurrentLocation?.coordinates;
-      if (!coordinates) return null;
-      try {
-        const result = await reverseGeocodeAdminLocation(Number(coordinates[1]), Number(coordinates[0]));
-        customerReverseGeocodeCache.set(key, result);
-        return [key, result] as const;
-      } catch {
-        return null;
-      }
-    })).then((results) => {
-      if (!active) return;
-      setResolvedCustomerAddresses((current) => ({ ...current, ...Object.fromEntries(results.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))) }));
-    });
-    return () => { active = false; };
-  }, [activeSection, customerLocationsSignature]);
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
     if (!searchTerm) return [];
