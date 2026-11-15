@@ -63,12 +63,17 @@ async function fixture(route) {
       const page = await context.newPage();
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`${base}/dashboard`);
-      await page.getByRole("button", { name: "Book a Service", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Start Request", exact: true }).waitFor();
+      await page.screenshot({ path: path.join(output, `home-${viewport.width}.png`), fullPage: true });
       const screens = ["profile", "search", "favoriteTailors", "settings", "appLanguage", "notificationPreferences", "notifications", "coupons", "customerStories", "rateApp", "measurementGuide", "fabricCare", "cancellationPolicy", "faq", "appInfo", "savedAddresses", "editProfile", "wallet", "support", "orders", "orderDetails?order=fixture-order", "trackOrder?order=fixture-order", "newRequest"];
       for (const screen of screens) {
         await page.evaluate((hash) => { location.hash = hash; }, screen);
         await page.waitForTimeout(150);
         assert.ok(await page.locator("main").innerText(), `Blank screen: ${screen}`);
+        if (screen === "orders") {
+          await page.getByRole("button", { name: "History (1)", exact: true }).first().click();
+          await page.getByText("REQ-", { exact: false }).first().waitFor();
+        }
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
         assert.ok(overflow <= 2, `Horizontal overflow ${overflow}px: ${screen} at ${viewport.width}`);
       }
@@ -80,20 +85,22 @@ async function fixture(route) {
       await page.getByRole("button", { name: "Remove media: test.png" }).click();
       assert.equal(await page.getByRole("button", { name: "Remove media: test.png" }).count(), 0, "Uploaded media was not removable");
       await page.getByRole("button", { name: "Men", exact: true }).click();
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: "Continue to Measurements", exact: true }).click();
+      await page.getByText("Optional garment and work details", { exact: true }).click();
       await page.getByRole("button", { name: "Shirt", exact: true }).click();
       await page.getByRole("button", { name: "New Stitching", exact: true }).click();
       await page.getByRole("checkbox", { name: "Stitch from Fabric", exact: true }).check();
       await page.getByRole("button", { name: "Normal (up to 7 days)", exact: true }).click();
       await page.getByRole("combobox", { name: "Preferred visit time", exact: true }).selectOption("10:00 AM - 12:00 PM");
-      await page.getByRole("button", { name: "Review Order", exact: true }).click();
+      await page.screenshot({ path: path.join(output, `measurements-${viewport.width}.png`), fullPage: true });
+      await page.getByRole("button", { name: "Review Request", exact: true }).click();
       await page.getByRole("button", { name: "Get Quotes", exact: true }).click();
+      await page.screenshot({ path: path.join(output, `quotes-${viewport.width}.png`), fullPage: true });
       await page.getByRole("button", { name: /Test Tailor/ }).first().click();
-      await page.getByRole("button", { name: "Confirm This Tailor", exact: true }).click();
-      await page.getByText("Payment Summary", { exact: true }).waitFor();
+      await page.getByText("Order Recap", { exact: true }).waitFor();
       await page.screenshot({ path: path.join(output, `checkout-${viewport.width}.png`), fullPage: true });
       await page.reload();
-      await page.getByText("Payment Summary", { exact: true }).waitFor();
+      await page.getByText("Order Recap", { exact: true }).waitFor();
       await page.evaluate(() => { location.hash = "search"; });
       await page.getByRole("button", { name: "Save tailor", exact: true }).click();
       await page.evaluate(() => { location.hash = "favoriteTailors"; });

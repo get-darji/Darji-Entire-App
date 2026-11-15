@@ -1,0 +1,59 @@
+.customer-order-web {
+  --darji-ink: #26130f;
+  --darji-muted: #625952;
+  --darji-orange: #df9200;
+  --darji-line: #eed9b9;
+  background: #fffdf9;
+  color: #26130f;
+}
+.customer-order-web .font-black { font-weight: 800; }
+
+.customer-order-web .shell { width: min(1440px, calc(100% - 48px)); }
+.customer-order-web .premium-card { border-color: #eed9b9; background: #fffdf9; box-shadow: 0 5px 22px rgba(89, 52, 16, .04); }
+.customer-order-web .reference-card { border: 1px solid #efd8b6; border-radius: 18px; background: linear-gradient(135deg, #fffdfa, #fff8ed); box-shadow: 0 4px 16px rgba(89, 52, 16, .035); }
+.customer-order-web .reference-action { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 12px; border: 1px solid #eaa600; border-radius: 13px; background: linear-gradient(105deg, #ffbc05, #ee9e00); padding: 0 22px; color: #25150f; font-weight: 800; box-shadow: 0 4px 11px rgba(232, 158, 0, .13); }
+.customer-order-web .reference-action:hover { filter: brightness(1.04); }
+.customer-order-web .reference-outline { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; border: 1px solid #ebcda3; border-radius: 12px; background: #fffdfa; padding: 0 18px; color: #302019; font-weight: 700; }
+.customer-order-web .reference-outline:hover { background: #fff3d8; }
+.customer-order-web .reference-section-heading { color: #28130f; font-size: clamp(1.25rem, 2vw, 1.65rem); font-weight: 800; letter-spacing: -.035em; }
+.customer-order-web .reference-hero { background: linear-gradient(90deg, rgba(255,251,246,.99) 0%, rgba(255,251,246,.96) 37%, rgba(255,251,246,.15) 68%), url('/editorial/hero-tailor.jpg') center 48% / cover; }
+.customer-order-web .reference-festive { background: linear-gradient(90deg, rgba(255,246,231,.98), rgba(255,246,231,.82) 55%, rgba(255,246,231,.08)), url('/editorial/blog-saree-blouse.jpg') center 42% / cover; }
+.customer-order-web .reference-category img { width: 100%; height: 126px; object-fit: contain; object-position: center; }
+.customer-order-web .reference-category:hover { transform: translateY(-2px); border-color: #e6ac45; }
+.customer-order-web .reference-tailor-directory > .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.customer-order-web .reference-tailor-directory article { border-color: #eed9b9; border-radius: 16px; background: #fffdf9; box-shadow: 0 4px 14px rgba(89, 52, 16, .04); }
+.customer-order-web .reference-tailor-directory article button:last-child { color: #b77600; }
+.customer-order-web .reference-flow-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.customer-order-web .reference-flow-step { display: flex; align-items: center; gap: 9px; color: #6b5b50; font-size: 14px; font-weight: 700; }
+.customer-order-web .reference-flow-step strong { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #dcc4a6; border-radius: 50%; color: #2a1913; }
+.customer-order-web .reference-flow-step.is-active strong { border-color: #eda300; background: #fcb600; }
+.customer-order-web .reference-flow-step.is-done strong { border-color: #f4c753; background: #fff3d3; color: #cf8900; }
+.customer-order-web .reference-form-title { font-size: 1.12rem; font-weight: 800; letter-spacing: -.025em; }
+.customer-order-web .reference-form-note { color: #685d54; font-size: .86rem; }
+.customer-order-web .reference-info-list > div { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f2e2cc; }
+.customer-order-web .reference-info-list > div:last-child { border-bottom: 0; }
+.customer-order-web .reference-info-list svg { flex: none; color: #df9200; }
+.customer-order-web .reference-status-line { display: flex; align-items: center; gap: 4px; }
+.customer-order-web .reference-status-line span { flex: 1; height: 3px; background: #e8ded1; }
+.customer-order-web .reference-status-line span.is-done { background: #e9a100; }
+.customer-order-web .reference-status-line i { display: grid; width: 22px; height: 22px; flex: none; place-items: center; border: 2px solid #d6c9b8; border-radius: 50%; background: white; font-size: 12px; font-style: normal; }
+.customer-order-web .reference-status-line i.is-done { border-color: #e5a000; background: #e5a000; color: white; }
+.customer-order-web .reference-status-line i.is-current { border-color: #e5a000; box-shadow: inset 0 0 0 4px white; background: #e5a000; }
+.customer-order-web input, .customer-order-web textarea, .customer-order-web select { border-color: #ebd6b8; }
+.customer-order-web textarea:focus, .customer-order-web input:focus, .customer-order-web select:focus { outline-color: #e9a500; }
+.customer-order-web .reference-order-row { display: grid; grid-template-columns: minmax(240px, 1.4fr) minmax(205px, 1fr) minmax(135px, .55fr); align-items: center; gap: 18px; }
+.customer-order-web .reference-trust-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; border: 1px solid #f1ddbc; border-radius: 15px; background: #fff8e9; padding: 15px 20px; }
+.customer-order-web .reference-trust-strip > div { display: flex; align-items: center; gap: 10px; font-size: .82rem; font-weight: 700; }
+.customer-order-web .reference-trust-strip svg { color: #df9200; }
+@media (max-width: 900px) {
+  .customer-order-web .reference-order-row { grid-template-columns: 1fr; }
+  .customer-order-web .reference-trust-strip { grid-template-columns: 1fr; }
+  .customer-order-web .reference-tailor-directory > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .customer-order-web .shell { width: min(100% - 28px, 1440px); }
+  .customer-order-web .reference-hero { background: linear-gradient(90deg, rgba(255,251,246,.96), rgba(255,251,246,.76)), url('/editorial/hero-tailor.jpg') center / cover; }
+  .customer-order-web .reference-flow-header { align-items: flex-start; flex-direction: column; }
+  .customer-order-web .reference-category img { height: 105px; }
+  .customer-order-web .reference-tailor-directory > .grid { grid-template-columns: 1fr; }
+}

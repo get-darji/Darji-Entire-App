@@ -61,13 +61,14 @@ import { customerApi, errorMessage } from "@/src/lib/api";
 import { couponDiscount, couponLabel, deliveryFeeForUrgency, getPlatformFee, getSmallOrderFee, quoteEta } from "@/src/lib/pricing";
 import type { Address, CheckoutResponse, Coupon, CustomerTailor, HandoffOtp, NotificationRow, TailoringRequest, TailoringRequestItem, TailorQuote, UploadedMedia, WalletSummary } from "@/src/lib/types";
 import { useAuthStore } from "@/src/store/auth-store";
-import { CustomerExtraScreen, extraScreens, LanguageSwitcher, OrderActions, DeliveryTracking, TailorProfile, type ExtraScreen } from "./customer-extra-screens";
+import { CustomerExtraScreen, extraScreens, LanguageSwitcher, OrderActions, DeliveryTracking, TailorDirectory, TailorProfile, type ExtraScreen } from "./customer-extra-screens";
 import { uiText, useCustomerPreferences } from "./customer-preferences";
 import { CustomerDialogProvider, useCustomerDialog } from "./customer-dialog";
 import { isFinishedOrder, orderStatusLabel, measurementSlots } from "./order-state";
 import { measurementVisitFee } from "@darji/shared";
 import { GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../../shared/src/cloth-details";
 import { VoiceNotes } from "./voice-notes";
+import "./customer-order-web.css";
 
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
@@ -154,8 +155,9 @@ const flowSteps = [
 
 const appNav = [
   { screen: "home", label: "Home", icon: Home },
-  { screen: "newRequest", label: "Book", icon: Plus },
+  { screen: "search", label: "Explore", icon: Search },
   { screen: "orders", label: "Orders", icon: PackageCheck },
+  { screen: "support", label: "Support", icon: HelpCircle },
   { screen: "profile", label: "Profile", icon: UserRound }
 ] as const;
 
@@ -847,41 +849,45 @@ function AppHeader({
   screen,
   setScreen,
   signOut,
-  syncing
+  syncing,
+  pickup
 }: {
   screen: CustomerScreen;
   setScreen: (screen: CustomerScreen) => void;
   signOut: () => void;
   syncing: boolean;
+  pickup: string;
 }) {
   const user = useAuthStore((state) => state.user);
   return (
-    <header className="sticky top-0 z-40 border-b border-white/70 bg-white/86 backdrop-blur-xl">
-      <div className="shell flex min-h-20 items-center justify-between gap-4">
+    <header className="customer-site-header sticky top-0 z-40 border-b border-[#f0dec5] bg-white/95 backdrop-blur-xl">
+      <div className="shell flex min-h-16 items-center justify-between gap-4">
         <Link href="/" className="shrink-0 rounded-xl">
-          <BrandLogo imageClassName="h-[58px] w-auto" />
+          <img src="/darji-logo-cropped.png" alt="Darji" className="h-9 w-auto" />
         </Link>
-        <nav className="hidden items-center gap-2 md:flex">
+        <nav className="hidden items-center gap-1 lg:flex">
           {appNav.map((item) => {
             const Icon = item.icon;
-            const active = item.screen === screen || (item.screen === "newRequest" && ["clothIssue", "summary", "quotes", "confirm"].includes(screen));
+            const active = item.screen === screen || (item.screen === "home" && ["newRequest", "clothIssue", "summary", "quotes", "confirm", "orderDetails"].includes(screen));
             return (
-              <button key={item.screen} onClick={() => setScreen(item.screen)} className={`focus-ring inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black transition ${active ? "bg-[var(--darji-ink)] text-white" : "text-[var(--darji-muted)] hover:bg-[#f8fafc] hover:text-[var(--darji-ink)]"}`}>
-                <Icon className="h-4 w-4" />
+              <button key={item.screen} onClick={() => setScreen(item.screen)} className={`focus-ring inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition ${active ? "bg-[#fff2d7] text-[#ce8200]" : "text-[#2d201d] hover:bg-[#fff8eb]"}`}>
+                <Icon className="h-4 w-4" strokeWidth={1.9} />
                 {uiText(item.label)}
               </button>
             );
           })}
         </nav>
-        <div className="flex items-center gap-3">
-          <LanguageSwitcher />
-          <button title={uiText("Notifications")} onClick={() => setScreen("notifications")} className="p-2"><Bell size={22} /></button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setScreen("savedAddresses")} className="hidden max-w-56 items-center gap-2 rounded-xl border border-[#ecd9bb] px-3 py-2 text-left text-xs font-semibold text-[#30211d] xl:inline-flex"><MapPin className="h-4 w-4 shrink-0" /><span className="truncate">{pickup || uiText("Choose location")}</span><ChevronDown className="h-3 w-3 shrink-0" /></button>
+          <button onClick={() => setScreen("search")} className="hidden min-w-52 items-center gap-2 rounded-xl border border-[#ecd9bb] px-3 py-2 text-left text-xs text-[#685d56] xl:inline-flex"><Search className="h-4 w-4" />{uiText("Search services or tailors...")}</button>
+          <div className="hidden sm:block"><LanguageSwitcher /></div>
+          <button title={uiText("Notifications")} onClick={() => setScreen("notifications")} className="p-2"><Bell size={19} /></button>
           {syncing ? (
             <span className="hidden items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-[var(--darji-muted)] shadow-sm sm:inline-flex">
               <Loader2 className="h-4 w-4 animate-spin" /> {uiText("Syncing")}
             </span>
           ) : null}
-          <button onClick={() => setScreen("profile")} className="focus-ring overflow-hidden h-10 w-10 shrink-0 rounded-full bg-[#f8fafc] border border-[#e6edf5] transition hover:border-[var(--darji-orange)] flex items-center justify-center shadow-sm">
+          <button onClick={() => setScreen("profile")} className="focus-ring overflow-hidden h-10 w-10 shrink-0 rounded-full bg-[#fff8eb] border border-[#ecd9bb] transition hover:border-[#e9a100] flex items-center justify-center shadow-sm">
             {user ? (
               <img src={getUserAvatarUrl(user)} alt="Profile" className="h-full w-full object-cover" />
             ) : (
@@ -897,10 +903,10 @@ function AppHeader({
 function BottomNav({ screen, setScreen }: { screen: CustomerScreen; setScreen: (screen: CustomerScreen) => void }) {
   return (
     <nav style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }} className="fixed inset-x-0 bottom-0 z-40 border-t border-[#e6edf5] bg-white/94 px-3 py-2 backdrop-blur-xl md:hidden">
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-5 gap-1">
         {appNav.map((item) => {
           const Icon = item.icon;
-          const active = item.screen === screen || (item.screen === "newRequest" && ["clothIssue", "summary", "quotes", "confirm"].includes(screen));
+          const active = item.screen === screen;
           return (
             <button key={item.screen} onClick={() => setScreen(item.screen)} className={`grid min-h-14 place-items-center rounded-2xl text-xs font-black ${active ? "bg-[var(--darji-ink)] text-white" : "text-[var(--darji-muted)]"}`}>
               <Icon className="h-5 w-5" />
@@ -955,154 +961,62 @@ function OrderPlacedModal({ success, onClose, onOrders }: { success?: OrderSucce
   );
 }
 
-function HomeScreen({
-  requests,
-  wallet,
-  draft,
-  setScreen,
-  openOrder
-}: {
-  requests: TailoringRequest[];
-  wallet?: WalletSummary;
-  draft: RequestDraft;
-  setScreen: (screen: CustomerScreen) => void;
-  openOrder: (request: TailoringRequest) => void;
-}) {
-  const activeOrders = requests.filter((request) => request.status !== "CANCELLED" && !String(request.orderStatus ?? "").toLowerCase().includes("completed"));
+const referenceCategories = [
+  { label: "Alteration", detail: "Fit and size changes", image: "/animations/service-alterations.png" },
+  { label: "Repair", detail: "Tears, zips and more", image: "/animations/service-repairs.png" },
+  { label: "Custom Stitching", detail: "Stitched for you", image: "/animations/service-custom-stitching.png" },
+  { label: "Men's Wear", detail: "Everyday and occasion wear", image: "/animations/service-mens-wear.png" },
+  { label: "Women's Wear", detail: "Traditional and modern fits", image: "/animations/service-womens-wear.png" },
+  { label: "Kids' Wear", detail: "Comfortable custom fits", image: "/animations/service-kids-wear.png" }
+];
+
+function ReferenceExploreScreen({ setScreen, setDraft }: { setScreen: (screen: CustomerScreen) => void; setDraft: Dispatch<SetStateAction<RequestDraft>> }) {
+  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"categories" | "tailors">("categories");
+  const categories = referenceCategories.filter((category) => `${category.label} ${category.detail}`.toLowerCase().includes(search.trim().toLowerCase()));
+  function chooseCategory(label: string) {
+    const workType = label === "Alteration" ? "Alteration & Fitting" : label === "Repair" ? "Repair & Mending" : label === "Custom Stitching" ? "New Stitching" : undefined;
+    if (workType) setDraft((current) => ({ ...current, workType, homeMeasurementBooked: workType === "New Stitching" || current.homeMeasurementBooked }));
+    setScreen("newRequest");
+  }
+  return <div className="grid gap-5"><section className="reference-hero reference-card min-h-[260px] p-7 sm:p-9"><div className="max-w-xl"><h1 className="text-4xl font-black tracking-[-.04em]">{uiText("Explore Services,")}<br />{uiText("Categories and Tailors")}</h1><p className="mt-3 max-w-md text-sm text-[#574b43]">{uiText("Find trusted tailors, discover services, and get your clothes stitched, altered or repaired with ease.")}</p><label className="mt-5 flex items-center gap-3 rounded-full border border-[#e5bd7f] bg-white/90 px-5 py-3 shadow-sm"><Search className="h-5 w-5" /><input aria-label={uiText("Search services and categories")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={uiText("Search services or categories...")} className="w-full border-0 bg-transparent text-sm outline-none" /></label><div className="mt-4 inline-flex rounded-full border border-[#eed9b9] bg-white p-1"><button className={`${tab === "categories" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("categories")}>{uiText("Categories")}</button><button className={`${tab === "tailors" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("tailors")}>{uiText("Tailors")}</button></div></div></section>{tab === "categories" ? <section><h2 className="reference-section-heading mb-3">{uiText("Browse by Category")}</h2><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{categories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}{!categories.length ? <p className="text-sm">{uiText("No category matches your search.")}</p> : null}</div></section> : null}<section><h2 className="reference-section-heading mb-3">{uiText("Top Tailors Near You")}</h2><div className="reference-tailor-directory reference-card p-5"><TailorDirectory savedOnly={false} onBook={() => setScreen("newRequest")} /></div></section><ReferenceTrustStrip /></div>;
+}
+
+function ReferenceHomeScreen({ requests, coupons, draft, setDraft, setScreen, openOrder }: { requests: TailoringRequest[]; coupons: Coupon[]; draft: RequestDraft; setDraft: Dispatch<SetStateAction<RequestDraft>>; setScreen: (screen: CustomerScreen) => void; openOrder: (request: TailoringRequest) => void }) {
+  const activeOrder = requests.find(isActiveOrder);
+  const offer = coupons.find((coupon) => coupon.isActive);
   const hasDraft = hasActiveItemDraftData(draft) || draft.items.length > 0 || Boolean(draft.backendRequestId);
-  const nextScreen: CustomerScreen = draft.backendRequestId ? "quotes" : draft.items.length ? "summary" : hasActiveItemDraftData(draft) ? "clothIssue" : "newRequest";
-
-  const bookingStepDescriptions: Record<string, string> = {
-    Upload: "Upload photos of your clothing",
-    Issue: "Describe the issue or alteration",
-    Measurements: "Add measurements or book home visit",
-    Quotes: "Get quotes from verified tailors",
-    Delivery: "We pickup, stitch & deliver back"
-  };
-
-  return (
-    <div className="grid gap-6">
-      <section className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[2.5rem] border border-[#efcf92] bg-gradient-to-br from-[#fffaf0] via-[#ffffff] to-[#fff3e1] p-8 shadow-sm flex flex-col justify-between md:flex-row relative overflow-hidden">
-          <div className="relative z-10 flex flex-col justify-center max-w-lg">
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#ffd5ad]/40 px-3.5 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-[var(--darji-orange)]">
-              <Sparkles className="h-3.5 w-3.5" /> {uiText("Doorstep Tailoring")}
-            </span>
-            <h1 className="mt-5 text-4xl font-black leading-[1.1] md:text-5xl text-[var(--darji-ink)]">
-              {uiText("Start with photos.")} <br />
-              <span className="text-[var(--darji-orange)]">{uiText("Finish with a confirmed tailor.")}</span>
-            </h1>
-            <p className="mt-4 text-sm font-semibold text-slate-500 leading-relaxed">
-              {uiText("Upload your clothes, tell us the issue and get quotes from trusted tailors near you.")}
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button onClick={() => setScreen(nextScreen)} className="h-12 px-6 rounded-2xl text-sm font-black shadow-md bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center gap-2">
-                {hasDraft ? uiText("Continue Booking") : uiText("Book a Service")} <ArrowRight className="h-4 w-4" />
-              </Button>
-              <Button variant="secondary" onClick={() => setScreen("orders")} className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 flex items-center gap-2">
-                <PackageCheck className="h-4.5 w-4.5 text-[var(--darji-orange)]" /> {uiText("View Orders")}
-              </Button>
-            </div>
+  const nextScreen: CustomerScreen = draft.backendRequestId ? "quotes" : draft.items.length ? "summary" : "newRequest";
+  function chooseCategory(label: string) {
+    const workType = label === "Alteration" ? "Alteration & Fitting" : label === "Repair" ? "Repair & Mending" : label === "Custom Stitching" ? "New Stitching" : undefined;
+    if (workType) setDraft((current) => ({ ...current, workType, homeMeasurementBooked: workType === "New Stitching" || current.homeMeasurementBooked }));
+    setScreen("newRequest");
+  }
+  return <div className="grid gap-5">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-4">
+        <section className="reference-hero reference-card relative flex min-h-[310px] flex-col justify-center overflow-hidden p-7 sm:p-9">
+          <div className="relative z-10 max-w-[450px]">
+            <h1 className="text-4xl font-black leading-[1.08] tracking-[-.045em] sm:text-5xl">{uiText("Get Tailoring")}<br />{uiText("Done at Your Doorstep")}</h1>
+            <p className="mt-4 max-w-[380px] text-sm leading-6 text-[#453a34]">{uiText("Alteration, repair, custom stitching and more — with trusted tailors, pickup and delivery at home.")}</p>
+            <button onClick={() => setScreen(nextScreen)} className="reference-action mt-5">{uiText(hasDraft ? "Continue Request" : "Start Request")} <ArrowRight className="h-4 w-4" /></button>
           </div>
-          <div className="relative mt-8 md:mt-0 flex justify-center items-center h-48 md:h-auto w-full md:w-56 shrink-0 z-0">
-            <img src="/hero-tailor-visual.png" alt="Tailoring Visual" className="h-40 w-full object-contain md:absolute md:right-0 md:bottom-0 md:h-48 md:w-auto" />
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-          <MetricTile 
-            label={uiText("Active Orders")}
-            value={activeOrders.length} 
-            description="Currently in progress" 
-            icon={Clock} 
-            sparklineColor="text-[#16a34a]"
-            sparklinePath="M 0 32 Q 20 18 40 22 T 80 12 T 100 6"
-          />
-          <MetricTile 
-            label={uiText("Total Orders")}
-            value={requests.length} 
-            description="All time orders" 
-            icon={PackageCheck} 
-            sparklineColor="text-[var(--darji-orange)]"
-            sparklinePath="M 0 30 Q 25 35 50 18 T 80 25 T 100 12"
-          />
-          <MetricTile 
-            label={uiText("Wallet Balance")}
-            value={formatMoney(wallet?.balance)} 
-            description="Available credits" 
-            icon={Wallet} 
-            sparklineColor="text-[var(--darji-blue)]"
-            sparklinePath="M 0 20 Q 25 15 50 25 T 100 20"
-          />
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-5">
-        {homeBookingSteps.map(({ label, icon: Icon }, index) => (
-          <div key={label} className="rounded-2xl border border-[#e6edf5] bg-white p-5 transition-all duration-300 hover:shadow-md hover:border-[#ffd5ad]">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#fff2d8] text-[var(--darji-orange)]">
-              <Icon className="h-5 w-5" />
-            </span>
-            <p className="mt-4 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--darji-orange)]">{uiText("Step")} {index + 1}</p>
-            <p className="mt-0.5 font-black text-base text-[var(--darji-ink)]">{uiText(label)}</p>
-            <p className="mt-2 text-xs font-semibold text-[var(--darji-muted)] leading-relaxed">
-              {bookingStepDescriptions[label]}
-            </p>
-          </div>
-        ))}
-      </section>
-
-      <section>
-        <div className="mb-4 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Live Orders \u2022")}</p>
-            <h2 className="mt-1 text-3xl font-black">{uiText("Track your current orders")}</h2>
-          </div>
-          <button onClick={() => setScreen("orders")} className="text-sm font-black text-[var(--darji-orange)] flex items-center gap-1 hover:underline">
-            {uiText("See all orders")} <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-        <OrdersList requests={requests.slice(0, 3)} openOrder={openOrder} compact />
-      </section>
+          <div className="relative z-10 mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#3b2b21]"><span className="flex items-center gap-2"><Truck className="h-4 w-4 text-[#e79d00]" />Doorstep Pickup & Delivery</span><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-[#e79d00]" />Verified Tailors</span><span className="flex items-center gap-2"><Shirt className="h-4 w-4 text-[#e79d00]" />Quality Service</span></div>
+        </section>
+        <div className="grid gap-3 sm:grid-cols-2"><div className="reference-card flex min-h-24 items-center gap-4 bg-[#fff1ce] p-5"><Truck className="h-11 w-11 text-[#df9200]" /><div><p className="text-lg font-black">{offer ? couponLabel(offer) : uiText("Doorstep service")}</p><p className="text-sm">{offer ? `${uiText("Use code")}: ${offer.code}` : uiText("Pickup and delivery at home")}</p></div></div><button onClick={() => setScreen("newRequest")} className="reference-card reference-festive min-h-24 p-5 text-left"><span className="rounded-lg bg-[#8f2815] px-2 py-1 text-xs font-black text-white">{uiText("TAILORING")}</span><p className="mt-2 max-w-44 text-lg font-black">{uiText("Made for your occasion")}</p></button></div>
+      </div>
+      <aside className="grid content-start gap-4">
+        <div className="reference-card p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-black">{uiText("Your Orders")}</h2><button onClick={() => setScreen("orders")} className="flex items-center gap-1 text-xs font-bold text-[#ce8200]">{uiText("View All")} <ArrowRight className="h-4 w-4" /></button></div>{activeOrder ? <button onClick={() => openOrder(activeOrder)} className="mt-4 w-full rounded-xl border border-[#eed9b9] bg-white p-4 text-left"><div className="flex items-center gap-3"><div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-[#fff2d7]">{firstMediaUrl(primaryOrderItem(activeOrder)) ? <img src={firstMediaUrl(primaryOrderItem(activeOrder))} alt="" className="h-full w-full object-cover" /> : <Shirt className="h-6 w-6 text-[#d99500]" />}</div><div className="min-w-0 flex-1"><p className="text-sm font-black">{requestCode(activeOrder)}</p><p className="truncate text-xs text-[#655a52]">{clothingItemTitle(primaryOrderItem(activeOrder))}</p><span className="mt-1 inline-block rounded-full bg-[#e1efff] px-2 py-1 text-[10px] font-bold text-[#2462aa]">{statusLabel(activeOrder)}</span></div><ChevronRight className="h-4 w-4" /></div><div className="reference-status-line mt-5"><i className="is-done">✓</i><span className="is-done" /><i className="is-done">✓</i><span className="is-done" /><i className="is-current" /><span /><i /></div><div className="mt-2 flex justify-between text-[10px] font-semibold text-[#574c44]"><span>Requested</span><span>Tailor</span><span>In progress</span><span>Delivered</span></div></button> : <p className="mt-4 rounded-xl border border-dashed border-[#e9d2ae] p-4 text-sm text-[#655a52]">{uiText("Your current order will appear here.")}</p>}<button onClick={() => setScreen("orders")} className="reference-outline mt-3 w-full"><PackageCheck className="h-4 w-4 text-[#db9200]" />{uiText("Track All Orders")}<ChevronRight className="ml-auto h-4 w-4" /></button></div>
+        <div className="reference-card p-5"><h2 className="text-lg font-black">{uiText("Need Help?")}</h2><button onClick={() => setScreen("support")} className="reference-outline mt-4 w-full justify-start"><MessageSquare className="h-5 w-5" />{uiText("Chat with Support")}<ChevronRight className="ml-auto h-4 w-4" /></button><button onClick={() => setScreen("helpCenter")} className="reference-outline mt-2 w-full justify-start"><HelpCircle className="h-5 w-5" />{uiText("Help Center")}<ChevronRight className="ml-auto h-4 w-4" /></button></div>
+      </aside>
     </div>
-  );
+    <section><div className="mb-3 flex items-center justify-between"><h2 className="reference-section-heading">{uiText("What do you need?")}</h2><button onClick={() => setScreen("search")} className="flex items-center gap-1 text-sm font-bold text-[#ce8200]">{uiText("Explore Services")}<ArrowRight className="h-4 w-4" /></button></div><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{referenceCategories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}</div></section>
+    <section><h2 className="reference-section-heading mb-3">{uiText("How Darji Works")}</h2><div className="grid gap-3 md:grid-cols-4">{[["Place a Request", "Tell us what you need", MessageSquare], ["Pickup from Home", "We collect your garment", Package], ["Tailoring by Experts", "Verified tailors work on it", Scissors], ["Delivery to You", "Get it back at home", Truck]].map(([title, description, Icon], index) => { const StepIcon = Icon as LucideIcon; return <div key={title as string} className="reference-card flex items-center gap-3 p-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#fff0cb] text-[#db9200]"><StepIcon className="h-5 w-5" /></span><div><p className="text-sm font-black">{index + 1}. {uiText(title as string)}</p><p className="text-xs text-[#635852]">{uiText(description as string)}</p></div></div>; })}</div></section>
+    <ReferenceTrustStrip />
+  </div>;
 }
 
-function MetricTile({ 
-  label, 
-  value, 
-  description, 
-  icon: Icon,
-  sparklineColor,
-  sparklinePath
-}: { 
-  label: string; 
-  value: string | number; 
-  description: string; 
-  icon: LucideIcon;
-  sparklineColor: string;
-  sparklinePath: string;
-}) {
-  const prompt = useCustomerDialog();
-  return (
-    <div className="rounded-[2rem] border border-[#e6edf5] bg-white p-5 flex items-center justify-between shadow-sm relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-[#ffb36f]/30">
-      <div className="flex gap-4 items-center">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#fff2d8] text-[var(--darji-orange)]">
-          <Icon className="h-6 w-6" />
-        </div>
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--darji-muted)]">{uiText(label)}</p>
-          <p className="mt-0.5 text-3xl font-black text-[var(--darji-ink)] leading-none">{value}</p>
-          <p className="mt-1 text-[10px] font-semibold text-slate-400">{description}</p>
-        </div>
-      </div>
-      <div className="w-24 h-12 shrink-0 self-center">
-        <svg className={`w-full h-full ${sparklineColor}`} viewBox="0 0 100 40" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d={sparklinePath} />
-        </svg>
-      </div>
-    </div>
-  );
-}
+function ReferenceTrustStrip() { return <div className="reference-trust-strip"><div><CheckCircle2 className="h-5 w-5" />{uiText("Verified & Experienced Tailors")}</div><div><Truck className="h-5 w-5" />{uiText("Doorstep Pickup & Delivery")}</div><div><CheckCircle2 className="h-5 w-5" />{uiText("Secure Handling")}</div></div>; }
 
 function MediaPreviewGrid({ local, uploaded, onRemoveLocal, onRemoveUploaded }: { local?: LocalMedia[]; uploaded?: UploadedMedia[]; onRemoveLocal?: (id: string) => void; onRemoveUploaded?: (id: string) => void }) {
   const items = [
@@ -1336,14 +1250,17 @@ function NewRequestStep({
   }
 
   return (
-    <FlowLayout screen="newRequest" title={uiText("Start Booking")} onBack={() => setScreen("home")} setScreen={setScreen}>
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px] text-left">
-        <section className="premium-card rounded-[2rem] p-6">
-          <div className="grid gap-5">
+    <FlowLayout screen="newRequest" title={uiText("New Request")} onBack={() => setScreen("home")} setScreen={setScreen}>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] text-left">
+        <section>
+          <div className="flex flex-col gap-3">
+            <div className="reference-card order-1 p-5"><h2 className="reference-form-title">{uiText("1. Gender / Fit Type")}</h2><p className="reference-form-note mb-4">{uiText("Choose who this request is for.")}</p>
             <ChipGroup label={uiText("Fit Type")} options={genderOptions} value={draft.gender} onChange={(value) => setDraft((current) => ({ ...current, gender: value, clothType: undefined, measurements: {} }))} />
-            <div className="flex flex-col gap-1.5 text-left mb-2">
-              <h3 className="text-lg font-black text-[var(--darji-ink)]">{uiText("What's the issue with your clothing?")}</h3>
-              <p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Describe the issue or alteration you need.")}</p>
+            </div>
+            <div className="reference-card order-2 p-5">
+            <div className="flex flex-col gap-1.5 text-left mb-3">
+              <h3 className="reference-form-title">{uiText("2. Describe What You Need")}</h3>
+              <p className="reference-form-note">{uiText("Tell us about the garment, style, fabric and any specific instructions.")}</p>
             </div>
             
             <div className="relative">
@@ -1358,11 +1275,13 @@ function NewRequestStep({
                 {draft.description.length}/1000
               </div>
             </div>
-
-            <VoiceNotes value={draft.voiceNotes ?? []} onChange={(voiceNotes) => setDraft((current) => ({ ...current, voiceNotes }))} />
+            {draft.description.trim().length >= 10 ? <p className="mt-2 rounded-lg bg-[#eaf7e8] px-3 py-2 text-xs font-semibold text-[#287540]">✓ {uiText("Looks good — you've added clear instructions.")}</p> : null}
+            </div>
+            <div className="reference-card order-3 p-5"><h3 className="reference-form-title">{uiText("3. Voice Instructions (Optional)")}</h3><p className="reference-form-note mb-3">{uiText("Record a note or upload one if speaking is easier.")}</p><VoiceNotes value={draft.voiceNotes ?? []} onChange={(voiceNotes) => setDraft((current) => ({ ...current, voiceNotes }))} /></div>
+            <div className="reference-card order-5 p-5">
             <div className="flex flex-col gap-1.5 text-left mt-2">
-              <h3 className="text-lg font-black text-[var(--darji-ink)]">{uiText("Pickup Address")}</h3>
-              <p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Where should we pick up your clothes?")}</p>
+              <h3 className="reference-form-title">{uiText("5. Pickup Address")}</h3>
+              <p className="reference-form-note">{uiText("Where should we pick up your clothing or fabric?")}</p>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -1398,10 +1317,11 @@ function NewRequestStep({
                 </button>
               ))}
             </div>
-
+            </div>
+            <div className="reference-card order-4 p-5">
             <div className="flex flex-col gap-1.5 text-left mt-2">
-              <h3 className="text-lg font-black text-[var(--darji-ink)]">{uiText("Upload photos or videos")}</h3>
-              <p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Help tailors understand the issue better.")}</p>
+              <h3 className="reference-form-title">{uiText("4. Add Photos or Video (Optional)")}</h3>
+              <p className="reference-form-note">{uiText("Share the cloth, issue or design reference.")}</p>
             </div>
 
             <UploadBox
@@ -1414,25 +1334,23 @@ function NewRequestStep({
               onRemoveUploaded={(id) => setDraft((current) => ({ ...current, uploadedMedia: current.uploadedMedia.filter((item) => item.publicId !== id) }))}
             />
             {uploadState === "uploading" ? <p role="status" className="flex items-center gap-2 text-sm text-[var(--darji-muted)]"><Loader2 className="h-4 w-4 animate-spin" />{uiText(advanceAfterUpload.current ? "Uploading media, then continuing..." : "Uploading media...")}</p> : null}
-            
+            </div>
             {formError || uploadError ? <p role="alert" className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{uiText(formError ?? uploadError ?? "")}</p> : null}
             
-            <div className="flex flex-col gap-3 sm:flex-row mt-4">
-              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" disabled={availabilityChecking} onClick={() => void continueToIssue()}>
-                {uiText(availabilityChecking ? "Checking area..." : "Continue")} <ChevronRight className="h-4 w-4" />
+            <div className="order-7 flex flex-col gap-3 sm:flex-row sm:justify-end mt-4">
+              <button className="reference-outline" onClick={() => setScreen("home")}>{uiText("Save as Draft")}</button>
+              <Button className="reference-action" disabled={availabilityChecking} onClick={() => void continueToIssue()}>
+                {uiText(availabilityChecking ? "Checking area..." : "Continue to Measurements")} <ChevronRight className="h-4 w-4" />
               </Button>
               {draft.items.length ? <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)]" variant="secondary" onClick={() => setScreen("summary")}>{uiText("Back to Summary")}</Button> : null}
             </div>
           </div>
         </section>
         <aside className="grid content-start gap-4">
-          <MiniSummary draft={draft} />
-          <div className="rounded-[2rem] border border-[#e6edf5] bg-white p-5 text-left">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--darji-muted)]">{uiText("Saved in this order")}</p>
-            <p className="mt-2 text-3xl font-black text-[var(--darji-ink)]">{draft.items.length}</p>
-            <p className="mt-1 text-xs font-semibold text-[var(--darji-muted)]">{uiText("clothing item")}{draft.items.length === 1 ? "" : uiText("s")}</p>
-          </div>
-
+          <div className="reference-card overflow-hidden"><div className="reference-festive p-5"><span className="rounded-md bg-[#8e2d1c] px-2 py-1 text-xs font-black text-white">{uiText("STEP 1 OF 2")}</span><h2 className="mt-3 text-xl font-black">{uiText("Get Accurate Quotes")}</h2><p className="mt-1 max-w-56 text-xs">{uiText("Share the right details so tailors can give you a quick quote.")}</p></div></div>
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("What Information Helps Tailors?")}</h2><div className="reference-info-list mt-2">{[[Shirt,"Garment & Style","Mention the garment and fit you want."],[Ruler,"Measurements or Fit","Share sizes if you have them."],[Scissors,"Fabric Details","Tell us what material you have."],[Camera,"Reference Photos / Videos","Add images for a clearer quote."]].map(([Icon,title,detail]) => { const InfoIcon=Icon as LucideIcon; return <div key={title as string}><InfoIcon className="h-5 w-5" /><div><p className="text-sm font-bold">{uiText(title as string)}</p><p className="text-xs text-[#695d52]">{uiText(detail as string)}</p></div></div>; })}</div></div>
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Keep in Mind")}</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-xs text-[#594d43]"><li>{uiText("Clear details help tailors quote faster.")}</li><li>{uiText("Photos, video and voice notes are optional.")}</li><li>{uiText("You'll choose measurements and timing next.")}</li></ul></div>
+          <ReferenceTrustStrip />
         </aside>
       </div>
     </FlowLayout>
@@ -1496,14 +1414,16 @@ function ClothIssueStep({
   }
 
   return (
-    <FlowLayout screen="clothIssue" title={uiText("Cloth Details")} onBack={() => setScreen("newRequest")} setScreen={setScreen}>
-      <div className="grid gap-6 xl:grid-cols-[1fr_370px] text-left">
-        <section className="premium-card rounded-[2rem] p-6">
-          <div className="grid gap-6">
+    <FlowLayout screen="clothIssue" title={uiText("Measurements & Timing")} onBack={() => setScreen("newRequest")} setScreen={setScreen}>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px] text-left">
+        <section className="grid content-start gap-4">
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Request Overview")}</h2><div className="mt-3 flex flex-wrap items-center gap-5 text-sm"><span className="font-bold">{draft.gender || uiText("Fit not selected")}</span><span>{draft.description.trim() ? uiText("Instructions added") : uiText("Voice instructions added")}</span><span>{draft.media.length + draft.uploadedMedia.length} {uiText("media files")}</span><button onClick={() => setScreen("newRequest")} className="ml-auto text-sm font-bold text-[#ca8400]">{uiText("View Details")} →</button></div></div>
+          <div className="reference-card grid gap-5 p-5"><h2 className="reference-form-title">{uiText("How would you like to provide measurements?")}</h2>
+            <div className="grid gap-6">
+            <details className="rounded-xl border border-[#eed9b9] bg-white p-4"><summary className="cursor-pointer text-sm font-bold">{uiText("Optional garment and work details")}</summary><div className="mt-5 grid gap-5">
             <ChipGroup label={uiText("Cloth Type")} options={[...getGarmentsForGender(draft.gender)]} value={draft.clothType} onChange={(value) => setDraft((current) => ({ ...current, clothType: value, measurements: {} }))} />
             <ChipGroup label={uiText("Work Type")} options={workTypes} value={draft.workType} onChange={(value) => setDraft((current) => ({ ...current, workType: value, selectedWorkItems: [], homeMeasurementBooked: value === "New Stitching" || current.homeMeasurementBooked }))} />
             {draft.workType === "Other" ? <textarea aria-label={uiText("Work details")} placeholder={uiText("Work details")} className={inputClass} value={draft.otherWorkDescription ?? ""} maxLength={1000} onChange={(event) => setDraft((current) => ({ ...current, otherWorkDescription: event.target.value }))} /> : <div className="grid gap-3 sm:grid-cols-2">{getServiceCategory(draft.workType)?.workItems.map((work) => <label key={work} className="flex items-center gap-3 rounded-lg border bg-white p-3"><input className="h-5 w-5 accent-amber-500" type="checkbox" checked={draft.selectedWorkItems?.includes(work) ?? false} onChange={(event) => setDraft((current) => ({ ...current, selectedWorkItems: event.target.checked ? [...current.selectedWorkItems ?? [], work] : current.selectedWorkItems?.filter((item) => item !== work) }))} />{uiText(work)}</label>)}</div>}
-            <ChipGroup label={uiText("Urgency")} options={urgencyOptions} value={draft.urgency} onChange={(value) => setDraft((current) => ({ ...current, urgency: value }))} />
 
             {draft.workType === "New Stitching" && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
@@ -1529,6 +1449,7 @@ function ClothIssueStep({
                 <p className="mt-3 text-xs font-bold text-amber-800">{uiText("By continuing, you confirm that you will provide sufficient cloth for this order.")}</p>
               </div>
             )}
+            </div></details>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <ToggleTile
@@ -1613,19 +1534,22 @@ function ClothIssueStep({
                 </FieldShell>
               </div>
             )}
+            </div>
+          </div>
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Delivery Speed")}</h2><p className="reference-form-note mb-4">{uiText("Choose when you need your garment delivered.")}</p><ChipGroup label={uiText("Delivery Speed")} options={urgencyOptions} value={draft.urgency} onChange={(value) => setDraft((current) => ({ ...current, urgency: value }))} /></div>
 
             {formError ? <p className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{formError}</p> : null}
 
             <div className="flex flex-col gap-3 sm:flex-row mt-4">
-              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" loading={savingAction === "summary"} onClick={() => void saveItem("summary")}>
-                {uiText("Review Order")} <ChevronRight className="h-4 w-4" />
+              <Button className="reference-action flex-1" loading={savingAction === "summary"} onClick={() => void saveItem("summary")}>
+                {uiText("Review Request")} <ChevronRight className="h-4 w-4" />
               </Button>
               <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)] flex items-center justify-center gap-2" variant="secondary" loading={savingAction === "another"} onClick={() => void saveItem("another")}>
                 <Plus className="h-4 w-4 text-[var(--darji-orange)]" /> {uiText("Add Another Cloth")}
               </Button>
             </div>
-          </div>
         </section>
+        <aside className="grid content-start gap-4"><div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Request Summary")}</h2><p className="mt-3 text-sm font-bold">{draft.clothType || uiText("Custom Garment")}</p><div className="reference-info-list mt-2"><div><UserRound className="h-5 w-5" /><p className="text-sm">{uiText("Fit Type")}: {draft.gender}</p></div><div><MessageSquare className="h-5 w-5" /><p className="text-sm">{uiText("Instructions")}: {draft.description ? uiText("Added") : uiText("Voice note")}</p></div><div><MapPin className="h-5 w-5" /><p className="text-sm">{draft.pickup}</p></div></div></div><div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Helpful Notes")}</h2><p className="reference-form-note mt-3">{uiText("Choose a sample, a home visit, or enter your own measurements. Double-check any sizes you enter.")}</p></div><ReferenceTrustStrip /></aside>
       </div>
 
       {showSizingModal && (
@@ -1683,19 +1607,10 @@ function ClothIssueStep({
 
 function FlowLayout({ screen, title, onBack, setScreen, children }: { screen: CustomerScreen; title: string; onBack: () => void; setScreen?: (screen: CustomerScreen) => void; children: React.ReactNode }) {
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-col gap-4">
-        <button onClick={onBack} className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--darji-muted)] shadow-sm">
-          <ArrowLeft className="h-4 w-4" />
-          {uiText("Back")}
-        </button>
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Book service")}</p>
-            <h1 className="mt-1 text-4xl font-black">{title}</h1>
-          </div>
-        </div>
-        <StepProgress screen={screen} setScreen={setScreen} />
+    <div className="grid gap-5">
+      <div className="reference-flow-header border-b border-[#f0dfc5] pb-4">
+        <div className="flex items-center gap-4"><button onClick={onBack} aria-label={uiText("Back")} className="reference-outline !h-11 !w-11 !min-h-11 !rounded-full !px-0"><ArrowLeft className="h-5 w-5" /></button><div><h1 className="text-3xl font-black tracking-[-.04em]">{title}</h1><p className="text-sm text-[#685d54]">{screen === "newRequest" ? uiText("Tell us what you need, and we'll connect you with the right tailors.") : screen === "clothIssue" ? uiText("Choose how to provide measurements and when you need delivery.") : screen === "quotes" ? uiText("Compare prices, timing and tailor profiles.") : screen === "confirm" ? uiText("Review your order and confirm your booking.") : ""}</p></div></div>
+        {["newRequest", "clothIssue"].includes(screen) ? <div className="hidden items-center gap-4 sm:flex"><div className={`reference-flow-step ${screen === "newRequest" ? "is-active" : "is-done"}`}><strong>{screen === "newRequest" ? "1" : "✓"}</strong>{uiText("Request Details")}</div><span className="h-0.5 w-10 bg-[#e5bd70]" /><div className={`reference-flow-step ${screen === "clothIssue" ? "is-active" : ""}`}><strong>2</strong>{uiText("Measurements & Timing")}</div><span className="rounded-full bg-[#fff0ce] px-3 py-1 text-xs font-black text-[#bb7c00]">{screen === "newRequest" ? "1/2" : "2/2"}</span></div> : null}
       </div>
       {children}
     </div>
@@ -2098,19 +2013,22 @@ function QuotesStep({
   });
   const visibleQuotes = (quotes.data ?? []).filter((quote) => ["SUBMITTED", "RESERVED", "ACCEPTED"].includes(quote.status));
   const [profile, setProfile] = useState<CustomerTailor>();
+  const [sort, setSort] = useState<"recommended" | "lowest" | "fastest" | "rated">("recommended");
+  const sortedQuotes = [...visibleQuotes].sort((a, b) => sort === "lowest" ? a.price - b.price : sort === "fastest" ? (a.estimatedDays ?? 999) - (b.estimatedDays ?? 999) : sort === "rated" ? (b.tailor?.rating ?? 0) - (a.tailor?.rating ?? 0) : 0);
+  const lowestPrice = visibleQuotes.length ? Math.min(...visibleQuotes.map((quote) => quote.price)) : 0;
 
   return (
-    <FlowLayout screen="quotes" title={uiText("Tailor Quotes")} onBack={() => setScreen("summary")} setScreen={setScreen}>
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px] text-left">
+    <FlowLayout screen="quotes" title={uiText(visibleQuotes.length ? "Tailor Quotations" : "Searching for Tailors")} onBack={() => setScreen("orders")} setScreen={setScreen}>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] text-left">
         <section className="grid gap-5">
-          <div className="flex flex-col justify-between gap-4 rounded-[2rem] border border-[#e6edf5] bg-white p-5 sm:flex-row sm:items-center shadow-sm">
+          <div className="reference-card flex flex-col justify-between gap-4 bg-[url('/customer-slider/festive-special.webp')] bg-cover bg-center p-5 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-[#fff2d8] text-[var(--darji-orange)] flex items-center justify-center shrink-0 shadow-inner">
                 <Ticket className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-black text-base text-[var(--darji-ink)]">{quotes.isLoading ? uiText("Checking tailor quotes") : `${visibleQuotes.length} tailor quote${visibleQuotes.length === 1 ? "" : "s"}`}</p>
-                <p className="mt-0.5 text-xs font-semibold text-[var(--darji-muted)]">{clothingItemsForDraft(draft).length} {uiText("clothing item")}{clothingItemsForDraft(draft).length === 1 ? "" : uiText("s")}</p>
+                <p className="font-black text-lg text-[var(--darji-ink)]">{quotes.isLoading ? uiText("Checking tailor quotes") : visibleQuotes.length ? `${visibleQuotes.length} ${uiText(visibleQuotes.length === 1 ? "Quote Received" : "Quotes Received")}` : uiText("Your request has been sent")}</p>
+                <p className="mt-0.5 text-xs font-semibold text-[var(--darji-muted)]">{uiText("Compare prices, delivery time and tailor experience.")}</p>
               </div>
             </div>
             <Button variant="secondary" className="h-11 px-4 rounded-xl text-xs font-black border border-[#e6edf5] bg-white hover:bg-slate-50 flex items-center gap-2" loading={quotes.isFetching} onClick={() => void quotes.refetch()}>
@@ -2118,27 +2036,25 @@ function QuotesStep({
             </Button>
           </div>
 
+          {visibleQuotes.length ? <div className="flex flex-wrap gap-2">{[["recommended","Recommended",Star],["lowest","Lowest Price",Ticket],["fastest","Fastest Delivery",Clock],["rated","Highest Rated",Star]].map(([id,label,Icon]) => { const SortIcon = Icon as LucideIcon; return <button key={id as string} onClick={() => setSort(id as typeof sort)} className={`${sort === id ? "reference-action" : "reference-outline"} !min-h-10 !rounded-full !px-4 text-sm`}><SortIcon className="h-4 w-4" />{uiText(label as string)}</button>; })}</div> : null}
+
           {!visibleQuotes.length && !quotes.isLoading ? (
-            <EmptyState title={uiText("Waiting for tailor quotes")} copy={uiText("Your request is open. Quotes will appear here when verified tailors respond.")} />
+            <div className="reference-card grid min-h-[360px] place-items-center p-8 text-center"><div><img src="/animations/cta-tailoring.png" alt="" className="mx-auto h-40 w-auto object-contain" /><h2 className="mt-3 text-2xl font-black">{uiText("Searching for tailors...")}</h2><p className="mx-auto mt-2 max-w-lg text-sm text-[#685b51]">{uiText("We're matching your request with trusted, verified tailors. Quotes will appear here as they respond.")}</p><div className="reference-status-line mx-auto mt-8 max-w-md"><i className="is-done">✓</i><span className="is-done" /><i className="is-current" /><span /><i /><span /><i /></div><button onClick={() => setScreen("orders")} className="reference-outline mt-8">{uiText("View Request Details")}<ArrowRight className="h-4 w-4" /></button></div></div>
           ) : null}
 
-          <div className="grid gap-4">
-            {visibleQuotes.map((quote) => <div key={quote.id} className="space-y-2"><QuoteCard quote={quote} selected={selectedQuote?.id === quote.id} onSelect={() => setSelectedQuote(quote)} />{quote.tailor ? <button className="min-h-11 px-3 text-sm font-bold text-[var(--darji-orange)]" onClick={() => setProfile(quote.tailor)}>{uiText("View Profile")}</button> : null}</div>)}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {sortedQuotes.map((quote) => <div key={quote.id} className="flex flex-col gap-2"><QuoteCard quote={quote} selected={selectedQuote?.id === quote.id} onSelect={() => { setSelectedQuote(quote); setScreen("confirm"); }} />{quote.tailor ? <button className="reference-outline w-full" onClick={() => setProfile(quote.tailor)}>{uiText("View Profile")}</button> : null}</div>)}
           </div>
           {profile ? <TailorProfile tailor={profile} onClose={() => setProfile(undefined)} /> : null}
 
           {quotes.error ? <p className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(quotes.error)}</p> : null}
 
-          <div className="flex flex-col gap-3 sm:flex-row mt-4">
-            <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" disabled={!selectedQuote} onClick={() => setScreen("confirm")}>
-              {uiText("Confirm This Tailor")} <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)] flex items-center justify-center gap-2" variant="secondary" onClick={() => setScreen("orders")}>{uiText("View Orders")}</Button>
-          </div>
+          <button className="reference-outline w-fit" onClick={() => setScreen("orders")}>{uiText("View Orders")}<ChevronRight className="h-4 w-4" /></button>
         </section>
         <aside className="grid content-start gap-4">
-          <MiniSummary draft={draft} />
-          <div className="premium-card rounded-[2rem] p-5 flex items-start gap-3 text-left">
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Request Summary")}</h2><p className="mt-3 text-sm font-black">{uiText("Request sent to tailors")}</p><p className="mt-2 text-xs text-[#64564d]">{clothingItemsForDraft(draft).length} {uiText("clothing item(s)")}</p><div className="reference-info-list mt-3"><div><MapPin className="h-5 w-5" /><p className="text-sm">{draft.pickup}</p></div><div><Truck className="h-5 w-5" /><p className="text-sm">{draft.urgency}</p></div><div><Ruler className="h-5 w-5" /><p className="text-sm">{draft.items.some((item) => item.homeMeasurementBooked) ? uiText("Home measurement visit") : uiText("Measurements or sample added")}</p></div></div></div>
+          {visibleQuotes.length ? <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Quote Stats")}</h2><div className="mt-4 grid grid-cols-2 gap-2 text-center"><div className="rounded-xl bg-[#fff2d8] p-3"><p className="text-xl font-black">{visibleQuotes.length}</p><p className="text-xs">{uiText("Quotes")}</p></div><div className="rounded-xl bg-[#fff2d8] p-3"><p className="text-xl font-black">{formatMoney(lowestPrice)}</p><p className="text-xs">{uiText("Lowest price")}</p></div></div></div> : null}
+          <div className="reference-card p-5 flex items-start gap-3 text-left">
             <div className="h-10 w-10 rounded-xl bg-[#ecfdf5] text-[#10b981] flex items-center justify-center shrink-0 shadow-inner">
               <CheckCircle2 className="h-5 w-5" />
             </div>
@@ -2158,12 +2074,13 @@ function QuoteCard({ quote, selected, onSelect }: { quote: TailorQuote; selected
   return (
     <button 
       onClick={onSelect} 
-      className={`rounded-[2rem] border p-6 text-left transition-all duration-300 w-full flex flex-col gap-5 ${
+      className={`reference-card !rounded-2xl p-4 text-left transition-all duration-300 w-full h-full flex flex-col gap-4 ${
         selected 
-          ? "border-[var(--darji-orange)] bg-[#fff7e8] shadow-[0_18px_50px_rgba(255,112,0,0.14)] scale-[1.01]" 
-          : "border-[#e6edf5] bg-white hover:border-[#ffb36f]"
+          ? "!border-[#eba000] bg-[#fff7e8] shadow-md"
+          : "hover:!border-[#eba000]"
       }`}
     >
+      <span className="inline-flex w-fit rounded-full bg-[#fff0cb] px-3 py-1 text-xs font-bold text-[#a76c00]">{uiText("Verified Tailor")}</span>
       <div className="flex items-start justify-between gap-4 w-full">
         <div className="flex items-center gap-3">
           <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[var(--darji-ink)] text-sm font-black text-white">
@@ -2184,10 +2101,10 @@ function QuoteCard({ quote, selected, onSelect }: { quote: TailorQuote; selected
             </span>
           </div>
         </div>
-        <span className="text-3xl font-black text-[var(--darji-orange)] shrink-0">{formatMoney(quote.price)}</span>
+        <Star className="h-5 w-5 shrink-0 fill-[#e5a000] text-[#e5a000]" />
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t border-[#edf1f5] pt-5 w-full">
+      <div className="grid grid-cols-2 gap-3 border-t border-[#f1dfc7] pt-4 w-full">
         <div className="rounded-xl bg-[#f8fafc] p-3 text-xs font-bold text-center flex-1">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{uiText("ETA")}</p>
           <p className="mt-1 font-black text-[var(--darji-ink)]">{quoteEta(quote)}</p>
@@ -2197,6 +2114,7 @@ function QuoteCard({ quote, selected, onSelect }: { quote: TailorQuote; selected
           <p className="mt-1 font-black text-[var(--darji-ink)]">{quote.pickupIncluded === false ? uiText("Extra") : uiText("Included")}</p>
         </div>
       </div>
+      <div className="mt-auto flex items-center justify-between rounded-xl bg-[#fff1d0] p-3"><span className="text-sm font-black">{uiText("Tailor Quote")}</span><strong className="text-xl text-[#ce8500]">{formatMoney(quote.price)}</strong></div><span className="reference-action w-full text-sm">{uiText("Select Quote")} <ArrowRight className="h-4 w-4" /></span>
     </button>
   );
 }
@@ -2326,11 +2244,11 @@ function ConfirmOrderStep({
   }
 
   return (
-    <FlowLayout screen="confirm" title={uiText("Confirm Order")} onBack={() => setScreen("quotes")} setScreen={setScreen}>
+    <FlowLayout screen="confirm" title={uiText("Confirm Order / Checkout")} onBack={() => setScreen("quotes")} setScreen={setScreen}>
       <div>
-        <div className="grid gap-6 lg:grid-cols-[1fr_380px] text-left">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] text-left">
           <section className="grid gap-5">
-            <div className="premium-card rounded-[2rem] p-6">
+            <div className="reference-card p-6">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--darji-orange)]">{uiText("Selected tailor")}</p>
               <div className="mt-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -2340,13 +2258,15 @@ function ConfirmOrderStep({
                     <p className="text-xs font-bold text-[var(--darji-muted)] mt-0.5">{uiText("ETA")} {quoteEta(quote)} {uiText("\u2022 Verified")}</p>
                   </div>
                 </div>
-                <p className="text-3xl font-black text-[var(--darji-orange)]">{formatMoney(quote.price)}</p>
+                <span className="rounded-full bg-[#fff2d8] px-3 py-1 text-xs font-bold text-[#aa7000]">✓ {uiText("Verified & Experienced Tailor")}</span>
               </div>
             </div>
 
-            <div className="premium-card rounded-[2rem] p-6">
+            <div><h2 className="reference-section-heading mb-3">{uiText("Order Details")}</h2><div className="reference-card grid gap-4 p-5 md:grid-cols-3"><div className="flex items-center gap-3 md:border-r md:border-[#ead8bd]"><span className="grid h-14 w-14 place-items-center rounded-xl bg-[#fff1d0]"><Shirt className="h-6 w-6 text-[#d99300]" /></span><div><p className="text-sm font-black">{items.length} {uiText("Clothing Item(s)")}</p><p className="text-xs text-[#685b52]">{items[0]?.clothType || uiText("Custom Garment")}</p></div></div><div className="md:border-r md:border-[#ead8bd]"><p className="text-xs text-[#685b52]">{uiText("Selected Delivery Timing")}</p><p className="mt-1 font-black">{draft.urgency}</p><p className="mt-2 text-xs text-[#685b52]">{uiText("Estimated completion")}: {quoteEta(quote)}</p></div><div><p className="text-xs text-[#685b52]">{uiText("Measurement Method")}</p><p className="mt-1 font-black">{items.some((item) => item.homeMeasurementBooked) ? uiText("Home Visit") : items.some((item) => item.sampleProvided) ? uiText("Sample Garment") : uiText("Manual Measurements")}</p>{items.some((item) => item.preferredMeasurementSlot) ? <p className="mt-2 text-xs text-[#685b52]">{items.find((item) => item.preferredMeasurementSlot)?.preferredMeasurementSlot}</p> : null}</div></div></div>
+
+            <div className="reference-card order-3 p-6">
               <p className="text-sm font-black text-[var(--darji-ink)]">{uiText("Payment Method")}</p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="mt-4 grid gap-3">
                 {(["ONLINE", "UPI", "COD"] as const).map((method) => {
                   const active = paymentMethod === method;
                   return (
@@ -2368,7 +2288,7 @@ function ConfirmOrderStep({
                         {method === "ONLINE" ? <CreditCard className="h-6 w-6" /> : method === "UPI" ? <Wallet className="h-6 w-6" /> : <Banknote className="h-6 w-6" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="block font-black text-base text-[var(--darji-ink)] leading-snug">{method}</span>
+                        <span className="block font-black text-base text-[var(--darji-ink)] leading-snug">{method === "ONLINE" ? uiText("Online Payment") : method === "COD" ? uiText("Cash on Delivery") : "UPI"}</span>
                         <span className="mt-1 block text-[10px] font-semibold text-[var(--darji-muted)] leading-normal">
                           {method === "ONLINE" ? uiText("Cards, Netbanking, Wallets") : method === "UPI" ? "Pay using any UPI app" : "Pay on pickup"}
                         </span>
@@ -2386,8 +2306,8 @@ function ConfirmOrderStep({
               </div>
             </div>
 
-            <div className="premium-card rounded-[2rem] p-6">
-              <p className="text-sm font-black text-[var(--darji-ink)]">{uiText("Coupons & Offers")}</p>
+            <div className="reference-card order-2 p-6">
+              <p className="text-sm font-black text-[var(--darji-ink)]">{uiText("Coupon Code")}</p>
               <div className="mt-4 flex gap-3 relative">
                 <input className={`${inputClass} h-12 py-0`} value={couponInput} onChange={(event) => setCouponInput(event.target.value.toUpperCase())} placeholder={uiText("Enter coupon code")} />
                 <Button className="h-12 px-6 rounded-2xl text-xs font-black border border-[#e6edf5] bg-white text-[var(--darji-ink)] hover:bg-[#fff7e8]" variant="secondary" onClick={() => applyCoupon()}>{uiText("Apply")}</Button>
@@ -2427,8 +2347,8 @@ function ConfirmOrderStep({
           </section>
 
           <aside className="grid content-start gap-4">
-            <div className="premium-card rounded-[2rem] p-6 text-left">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--darji-muted)]">{uiText("Payment Summary")}</p>
+            <div className="reference-card p-6 text-left">
+              <p className="reference-form-title">{uiText("Order Recap")}</p><div className="reference-info-list mt-3"><div><UserRound className="h-5 w-5" /><p className="text-sm">{quote.tailor?.shopName || uiText("Verified Tailor")}</p></div><div><Shirt className="h-5 w-5" /><p className="text-sm">{items.length} {uiText("item(s)")}</p></div><div><Truck className="h-5 w-5" /><p className="text-sm">{draft.urgency}</p></div></div><p className="mt-5 text-sm font-black">{uiText("Payable Amount")}</p>
               <div className="mt-4 grid gap-3">
                 <SummaryLine label={uiText("Tailor quote")} value={formatMoney(quote.price)} />
                 <DeliverySummaryLine
@@ -2445,8 +2365,8 @@ function ConfirmOrderStep({
                 {discount ? <SummaryLine label={uiText("Discount")} value={`-${formatMoney(discount)}`} /> : null}
                 <SummaryLine label={uiText("Total (incl. taxes)")} value={formatMoney(total)} strong />
                 {checkout.error ? <p className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(checkout.error)}</p> : null}
-                <Button className="h-14 rounded-2xl text-base w-full mt-4 bg-[var(--darji-orange)] hover:bg-[#e56500] text-white font-black" loading={checkout.isPending} onClick={() => checkout.mutate()}>
-                  {uiText("Pay")} {paymentMethod} {formatMoney(total)}
+                <Button className="reference-action !h-14 w-full text-base mt-4" loading={checkout.isPending} onClick={() => checkout.mutate()}>
+                  {paymentMethod === "COD" ? uiText("Confirm Order") : uiText("Confirm Order & Pay")} {paymentMethod === "COD" ? "" : formatMoney(total)}
                 </Button>
                 <p className="mt-2 text-center text-[10px] font-black text-slate-400 flex items-center justify-center gap-1 uppercase tracking-wider select-none">
                   <CheckCircle2 className="h-4 w-4 text-[#16a34a]" /> {uiText("100% Secure Payments")}
@@ -2539,239 +2459,31 @@ function ConfirmOrderStep({
   );
 }
 
-function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringRequest[]; openOrder: (request: TailoringRequest) => void; setScreen: (screen: CustomerScreen) => void }) {
-  const user = useAuthStore((state) => state.user);
-  const [filter, setFilter] = useState<OrderFilter>("all");
+function ReferenceOrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringRequest[]; openOrder: (request: TailoringRequest) => void; setScreen: (screen: CustomerScreen) => void }) {
+  const [filter, setFilter] = useState<"open" | "active" | "history" | "cancelled">("active");
+  const [search, setSearch] = useState("");
   const [latestFirst, setLatestFirst] = useState(true);
-  const active = requests.filter(isActiveOrder);
-  const waiting = requests.filter(isWaitingPickupOrder);
-  const completed = requests.filter(isCompletedOrder);
+  const open = requests.filter((request) => isCheckoutOpen(request));
+  const active = requests.filter((request) => isActiveOrder(request) && !isCheckoutOpen(request));
+  const history = requests.filter(isCompletedOrder);
   const cancelled = requests.filter(isCancelledOrder);
-  const filtered = requests.filter((request) => {
-    if (filter === "active") return isActiveOrder(request);
-    if (filter === "waiting") return isWaitingPickupOrder(request);
-    if (filter === "completed") return isCompletedOrder(request);
-    if (filter === "cancelled") return isCancelledOrder(request);
-    return true;
-  });
-  const visibleOrders = [...filtered].sort((a, b) => {
-    const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    return latestFirst ? -diff : diff;
-  });
-
-  return (
-    <div className="grid gap-5">
-      <section className="rounded-[2rem] border border-[#e6edf5] bg-white p-5 shadow-[0_18px_60px_rgba(8,17,31,0.06)]">
-        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-          <div>
-            <h1 className="text-3xl font-black">{uiText("My Orders")}</h1>
-            <p className="mt-1 text-sm font-semibold text-[var(--darji-muted)]">{uiText("Track and manage all your tailoring orders in one place.")}</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <button className="relative grid h-11 w-11 place-items-center rounded-full border border-[#e6edf5] bg-white text-[var(--darji-muted)]">
-              <Bell className="h-5 w-5" />
-              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[var(--darji-orange)]" />
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-full bg-[#fff2d8] text-sm font-black text-[var(--darji-orange)]">{(user?.name ?? "Aman Kumar").split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-black">{user?.name ?? "Aman Kumar"}</p>
-                <p className="text-xs font-bold text-[var(--darji-muted)]">+91 {user?.phone ?? "98765 43210"}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <OrderStatCard title={uiText("Active Orders")} value={active.length} helper="In progress" icon={PackageCheck} tone="orange" />
-          <OrderStatCard title={uiText("Waiting for Pickup")} value={waiting.length} helper="Scheduled" icon={CalendarCheck} tone="amber" />
-          <OrderStatCard title={uiText("Completed Orders")} value={completed.length} helper="All time" icon={CheckCircle2} tone="green" />
-          <OrderStatCard title={uiText("Canceled Orders")} value={cancelled.length} helper="Canceled" icon={XCircle} tone="red" />
-        </div>
-
-        <div className="mt-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-          <div className="flex flex-wrap rounded-2xl border border-[#e6edf5] bg-white p-1">
-            {[
-              ["all", "All Orders"],
-              ["active", "Active"],
-              ["waiting", "Waiting for Pickup"],
-              ["completed", "Completed"],
-              ["cancelled", "Canceled"]
-            ].map(([id, label]) => (
-              <button key={id} onClick={() => setFilter(id as OrderFilter)} className={`rounded-xl px-4 py-2 text-sm font-black transition ${filter === id ? "bg-[#fff7e8] text-[var(--darji-orange)] shadow-sm" : "text-[var(--darji-muted)] hover:text-[var(--darji-ink)]"}`}>
-                {uiText(label)}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-3">
-            <button className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-4 text-sm font-black text-[var(--darji-muted)]">
-              <Filter className="h-4 w-4" /> {uiText("Filter")}
-            </button>
-            <button onClick={() => setLatestFirst((current) => !current)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-4 text-sm font-black text-[var(--darji-muted)]">
-              <ArrowUpDown className="h-4 w-4" /> {latestFirst ? uiText("Sort Latest") : uiText("Sort Oldest")}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3">
-          {visibleOrders.length ? visibleOrders.map((request) => <OrderTableRow key={request.id} request={request} openOrder={() => openOrder(request)} />) : <EmptyState title={uiText("No orders found")} copy={uiText("Try another filter or create a new booking.")} />}
-        </div>
-
-        <div className="mt-6 flex flex-col justify-between gap-4 rounded-2xl bg-[#fffaf0] px-5 py-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-white text-[var(--darji-orange)]">
-              <Headphones className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="font-black">{uiText("Need Help with your order?")}</p>
-              <p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Our support team is here to help you.")}</p>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <Button variant="secondary" className="min-h-11">{uiText("Chat with us")}</Button>
-            <Button variant="secondary" className="min-h-11" onClick={() => { window.location.href = SUPPORT_PHONE_URL; }}>{uiText("Call Support")}</Button>
-          </div>
-        </div>
-      </section>
-      <Button className="w-fit" onClick={() => setScreen("newRequest")}><Plus className="h-4 w-4" /> {uiText("New Order")}</Button>
+  const groups = { open, active, history, cancelled };
+  const rows = [...groups[filter]].filter((request) => [requestCode(request), request.description, request.clothType, request.workType, request.selectedQuote?.tailor?.shopName].join(" ").toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) * (latestFirst ? 1 : -1));
+  return <div className="grid gap-5">
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-4xl font-black tracking-[-.04em]">{uiText("My Orders")}</h1><p className="mt-1 text-sm text-[#695b51]">{uiText("Track, manage and view all your tailoring orders in one place.")}</p></div><button className="reference-action" onClick={() => setScreen("newRequest")}><Plus className="h-4 w-4" />{uiText("New Request")}</button></div>
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">{[["open", "Open", open.length, Ticket], ["active", "Active", active.length, Scissors], ["history", "History", history.length, Clock], ["cancelled", "Cancelled", cancelled.length, XCircle]].map(([id, label, count, Icon]) => { const TabIcon = Icon as LucideIcon; return <button key={id as string} onClick={() => setFilter(id as typeof filter)} className={`${filter === id ? "reference-action" : "reference-outline"} !h-14 !justify-center text-sm`}><TabIcon className="h-5 w-5" />{uiText(label as string)} ({count as number})</button>; })}</div>
+    <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)]"><aside className="reference-card h-fit p-4"><label className="text-sm font-black" htmlFor="customer-order-search">{uiText("Search Orders")}</label><div className="relative mt-2"><Search className="absolute left-3 top-3 h-4 w-4 text-[#8a7767]" /><input id="customer-order-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={uiText("ID, item or tailor...")} className="w-full rounded-xl border border-[#ead5b7] bg-white py-2 pl-9 pr-3 text-sm" /></div><div className="mt-5 border-t border-[#eddcc5] pt-4"><p className="text-sm font-black">{uiText("Order Status")}</p><div className="mt-3 grid gap-2">{[["open", "Open", open.length], ["active", "Active", active.length], ["history", "History", history.length], ["cancelled", "Cancelled", cancelled.length]].map(([id, label, count]) => <label key={id as string} className="flex cursor-pointer items-center gap-2 text-sm"><input type="radio" checked={filter === id} onChange={() => setFilter(id as typeof filter)} />{uiText(label as string)} ({count as number})</label>)}</div></div><button onClick={() => { setSearch(""); setFilter("active"); }} className="reference-outline mt-5 w-full text-sm">{uiText("Clear All")}</button></aside>
+      <section><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="reference-section-heading">{uiText(filter === "open" ? "Open Requests" : filter === "active" ? "Active Orders" : filter === "history" ? "Order History" : "Cancelled Orders")} ({rows.length})</h2><p className="text-xs text-[#665b52]">{uiText("Your requests and orders, updated as they progress.")}</p></div><button className="reference-outline text-sm" onClick={() => setLatestFirst((value) => !value)}><ArrowUpDown className="h-4 w-4" />{uiText(latestFirst ? "Latest First" : "Oldest First")}</button></div><div className="grid gap-2">{rows.length ? rows.map((request) => <ReferenceOrderRow key={request.id} request={request} openOrder={() => openOrder(request)} />) : <EmptyState title={uiText("No orders found")} copy={uiText(search ? "Try another search." : "Orders in this category will appear here.")} />}</div><p className="mt-4 text-center text-xs text-[#706358]">{uiText("Showing")} {rows.length} {uiText("of")} {groups[filter].length} {uiText("orders")}</p></section>
     </div>
-  );
+  </div>;
 }
 
-function OrderStatCard({ title, value, helper, icon: Icon, tone }: { title: string; value: number; helper: string; icon: LucideIcon; tone: "orange" | "amber" | "green" | "red" }) {
-  const toneClass = {
-    orange: "bg-[#fff7e8] text-[var(--darji-orange)]",
-    amber: "bg-[#fffbeb] text-[#f59e0b]",
-    green: "bg-[#ecfdf5] text-[#16a34a]",
-    red: "bg-[#fff1f2] text-[#dc2626]"
-  }[tone];
-  return (
-    <div className={`rounded-2xl border border-[#f1e4d6] p-5 ${tone === "red" ? "bg-[#fff8f8]" : tone === "green" ? "bg-[#fbfffc]" : "bg-[#fffaf5]"}`}>
-      <div className="flex items-center justify-between gap-4">
-        <div className={`grid h-12 w-12 place-items-center rounded-2xl ${toneClass}`}>
-          <Icon className="h-6 w-6" />
-        </div>
-        <ChevronRight className="h-4 w-4 text-[var(--darji-muted)]" />
-      </div>
-      <p className="mt-5 text-xs font-black text-[var(--darji-muted)]">{title}</p>
-      <p className="mt-1 text-3xl font-black">{value}</p>
-      <p className="mt-1 text-xs font-bold text-[var(--darji-muted)]">{helper}</p>
-    </div>
-  );
-}
-
-function OrdersList({ requests, openOrder, compact = false }: { requests: TailoringRequest[]; openOrder: (request: TailoringRequest) => void; compact?: boolean }) {
-  if (!requests.length) return <EmptyState title={uiText("No orders yet")} copy={uiText("Book your first pickup and confirmed tailoring orders will appear here.")} />;
-  return (
-    <div className="grid gap-4">
-      {requests.map((request) => <OrderCard key={request.id} request={request} openOrder={() => openOrder(request)} compact={compact} />)}
-    </div>
-  );
-}
-
-function OrderCard({ request, openOrder, compact }: { request: TailoringRequest; openOrder: () => void; compact?: boolean }) {
-  if (!compact) return <OrderTableRow request={request} openOrder={openOrder} />;
-  
-  const item = primaryOrderItem(request);
-  const thumbnail = firstMediaUrl(item);
-  
-  return (
-    <motion.article 
-      initial={{ opacity: 0, y: 10 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      className="premium-card rounded-[2rem] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-5 transition hover:border-[#ffd5ad] duration-300"
-    >
-      <div className="flex items-center gap-4 flex-1">
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-[#e6edf5] bg-[#fffaf0] flex items-center justify-center">
-          {thumbnail ? (
-            <img src={thumbnail} alt={clothingItemTitle(item)} className="h-full w-full object-cover" />
-          ) : (
-            <Shirt className="h-8 w-8 text-[var(--darji-orange)]" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--darji-orange)]">
-            {requestCode(request)}
-          </p>
-          <h3 className="text-lg font-black text-[var(--darji-ink)] leading-snug mt-0.5 truncate">
-            {orderItemCount(request)} {uiText("Clothing Item")}{orderItemCount(request) > 1 ? uiText("s") : ""}
-          </h3>
-          <p className="text-xs font-semibold text-[var(--darji-muted)] mt-0.5 truncate">
-            {request.items?.[0] ? clothingItemSummary(request.items[0]) : `${request.workType} - ${request.clothType}`}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto shrink-0 border-t border-[#edf1f5] pt-4 sm:border-t-0 sm:pt-0">
-        <div className="text-left sm:text-right">
-          <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black leading-none ${statusPillClass(request)}`}>
-            {statusLabel(request)}
-          </span>
-          <div className="mt-2 text-[10px] font-bold text-[var(--darji-muted)] leading-tight space-y-0.5">
-            <p>{uiText("Pickup:")} {formatOrderDate(request.createdAt)}</p>
-            <p>{uiText("ETA:")} {estimatedDeliveryDate(request)}</p>
-             {request.deliveryFee != null ? <p>{uiText("Delivery:")} {formatMoney(request.deliveryFee)}</p> : null}
-          </div>
-        </div>
-        <button 
-          onClick={openOrder} 
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f8fafc] border border-[#e6edf5] hover:bg-[#fff7e8] hover:border-[#ffd5ad] text-[var(--darji-ink)] hover:text-[var(--darji-orange)] transition-colors duration-200"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </div>
-    </motion.article>
-  );
-}
-
-function OrderTableRow({ request, openOrder }: { request: TailoringRequest; openOrder: () => void }) {
+function ReferenceOrderRow({ request, openOrder }: { request: TailoringRequest; openOrder: () => void }) {
   const item = primaryOrderItem(request);
   const thumbnail = firstMediaUrl(item);
   const amount = orderAmount(request);
-  return (
-    <motion.article initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-[#edf1f5] bg-white p-4 transition hover:border-[#ffd5ad]">
-      <div className="grid gap-4 lg:grid-cols-[92px_1.55fr_1.15fr_0.82fr_auto] lg:items-center">
-        <div className="grid grid-cols-[82px_1fr] gap-4 lg:block">
-          <div className="h-24 w-20 overflow-hidden rounded-2xl border border-[#e6edf5] bg-[#fffaf0]">
-            {thumbnail ? <img src={thumbnail} alt={clothingItemTitle(item)} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center"><Shirt className="h-8 w-8 text-[var(--darji-orange)]" /></div>}
-          </div>
-          <div className="lg:hidden">
-            <p className="inline-flex rounded-full bg-[#fff7e8] px-3 py-1 text-xs font-black text-[var(--darji-orange)]">{requestCode(request)}</p>
-            <h3 className="mt-2 font-black">{clothingItemTitle(item)} - {item.workType}</h3>
-            <p className="mt-1 text-xs font-bold text-[var(--darji-muted)]">{formatOrderDate(request.createdAt, true)}</p>
-          </div>
-        </div>
-
-        <div className="hidden lg:block">
-          <p className="inline-flex rounded-full bg-[#fff7e8] px-3 py-1 text-xs font-black text-[var(--darji-orange)]">{requestCode(request)}</p>
-          <p className="mt-2 text-xs font-bold text-[var(--darji-muted)]">{formatOrderDate(request.createdAt, true)}</p>
-        </div>
-
-        <div>
-          <h3 className="font-black">{clothingItemTitle(item)} - {item.workType}</h3>
-          <p className="mt-1 text-sm font-semibold text-[var(--darji-muted)]">{item.gender ?? "Clothing"} {uiText("Wear -")} {item.workType}</p>
-          <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-[var(--darji-muted)]">
-            <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-[var(--darji-orange)]" /> {uiText("Pickup:")} {formatOrderDate(request.createdAt)}</span>
-            <span className="inline-flex items-center gap-1"><CalendarCheck className="h-3.5 w-3.5 text-[var(--darji-orange)]" /> {uiText("Delivery:")} {estimatedDeliveryDate(request)}</span>
-          </div>
-        </div>
-
-        <div className="border-[#edf1f5] lg:border-l lg:pl-6">
-          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${statusPillClass(request)}`}>{statusLabel(request)}</span>
-          <p className="mt-3 text-xs font-bold text-[var(--darji-muted)]">{isWaitingPickupOrder(request) ? uiText("Pickup Partner Assigned") : isCompletedOrder(request) ? "Delivered on" : isCancelledOrder(request) ? "Canceled on" : "Tailor status"}</p>
-          <p className="mt-1 text-sm font-black">{isCompletedOrder(request) || isCancelledOrder(request) ? formatOrderDate(request.createdAt) : request.selectedQuote?.tailor?.shopName ?? "Darji Tailor"}</p>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 border-[#edf1f5] lg:block lg:border-l lg:pl-6">
-          <p className="text-xl font-black">{amount != null ? formatMoney(amount) : uiText("Quote")}</p>
-          {request.deliveryFee != null ? <p className="mt-1 text-xs font-bold text-[var(--darji-muted)]">{uiText("Delivery:")} {formatMoney(request.deliveryFee)}</p> : null}
-          <button onClick={openOrder} className="mt-0 inline-flex items-center gap-2 text-sm font-black text-[var(--darji-orange)] lg:mt-3">
-            {uiText("View Details")} <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-    </motion.article>
-  );
+  const progress = currentTimelineIndex(request);
+  return <article className="reference-card reference-order-row p-4"><div className="flex min-w-0 items-center gap-3"><div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#fff0d2]">{thumbnail ? <img src={thumbnail} alt="" className="h-full w-full object-cover" /> : <Shirt className="h-8 w-8 text-[#d99500]" />}</div><div className="min-w-0"><p className="text-xs font-black text-[#b56d21]">{requestCode(request)}</p><h3 className="truncate text-sm font-black">{clothingItemTitle(item)}</h3><p className="truncate text-xs text-[#645a52]">{item.workType || uiText("Tailoring")}</p><p className="mt-1 text-xs text-[#645a52]">{uiText("Order Date")}: {formatOrderDate(request.createdAt)}</p></div></div><div><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${statusPillClass(request)}`}>{statusLabel(request)}</span><div className="reference-status-line mt-4"><i className="is-done">✓</i><span className={progress > 0 ? "is-done" : ""} /><i className={progress > 0 ? "is-done" : ""}>{progress > 0 ? "✓" : ""}</i><span className={progress > 4 ? "is-done" : ""} /><i className={progress > 4 ? "is-current" : ""} /><span className={progress > 7 ? "is-done" : ""} /><i className={progress > 7 ? "is-done" : ""}>{progress > 7 ? "✓" : ""}</i></div><div className="mt-1 flex justify-between text-[10px] text-[#6d6054]"><span>Requested</span><span>Tailor</span><span>In Progress</span><span>Delivered</span></div></div><div className="flex items-center justify-between gap-3 lg:justify-end"><div><p className="text-xs text-[#6d6054]">{uiText("Total Amount")}</p><p className="text-lg font-black">{amount != null ? formatMoney(amount) : uiText("Pending quote")}</p></div><button onClick={openOrder} className="reference-outline !min-h-9 text-xs">{uiText("View Details")}<ChevronRight className="h-4 w-4" /></button></div></article>;
 }
 
 function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { request: TailoringRequest; coupons: Coupon[]; setScreen: (screen: CustomerScreen) => void; onOrderPlaced: (request: TailoringRequest) => void }) {
@@ -2787,31 +2499,27 @@ function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { re
   const tailor = request.selectedQuote?.tailor;
   const tailorAddress = tailor?.verification?.shop?.shopAddress || tailor?.verification?.shop?.shopAddressLine || tailor?.verification?.shop?.shopArea;
   return (
-    <div className="grid gap-6">
-      <button onClick={() => setScreen("orders")} className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--darji-muted)] shadow-sm">
-        <ArrowLeft className="h-4 w-4" /> {uiText("Orders")}
-      </button>
-      <div className="premium-card rounded-[2rem] p-6">
+    <div className="grid gap-5">
+      <button onClick={() => setScreen("orders")} className="inline-flex w-fit items-center gap-2 text-sm font-bold text-[#4c3b30]"><ArrowLeft className="h-4 w-4" /> {uiText("Back to Orders")}</button>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-4xl font-black tracking-[-.04em]">{uiText("Order Details")}</h1><p className="text-sm text-[#685b52]">{uiText("View details of your order, measurements and delivery.")}</p></div><div className="flex flex-wrap gap-2"><button className="reference-action" onClick={() => setScreen("trackOrder")}><Truck className="h-4 w-4" />{uiText("Track Order")}</button><button className="reference-outline" onClick={() => setScreen("support")}><Headphones className="h-4 w-4" />{uiText("Get Help")}</button></div></div>
+      <div className="reference-card p-5">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{requestCode(request)}</p>
-            <h1 className="mt-2 text-4xl font-black">{statusLabel(request)}</h1>
-            <p className="mt-3 text-sm font-semibold text-[var(--darji-muted)]">{new Date(request.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
+            <p className="text-xs text-[#685b52]">{uiText("Order ID")}</p><p className="mt-1 text-xl font-black text-[#ac251c]">{requestCode(request)}</p><p className="mt-2 text-xs text-[#685b52]">{uiText("Placed on")} {new Date(request.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
           </div>
-          <div className="rounded-2xl bg-[#f8fafc] px-5 py-4 text-right">
-            <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--darji-muted)]">{uiText("Total")}</p>
-            <p className="mt-1 text-3xl font-black">{request.totalAmount ? formatMoney(request.totalAmount) : uiText("Quote pending")}</p>
-          </div>
+          <span className={`inline-flex rounded-xl px-5 py-3 text-sm font-black ${statusPillClass(request)}`}>{statusLabel(request)}</span>
         </div>
-        <OrderTimeline request={request} />
       </div>
 
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]"><div className="grid content-start gap-4">
+      <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Order Progress")}</h2><OrderTimeline request={request} /></div>
+
       <CustomerHandoffOtpCard orderId={request.id} status={statusLabel(request)} />
-      <div className="flex flex-wrap gap-3"><Button onClick={() => setScreen("trackOrder")}>{uiText("Track Order")}</Button><Button onClick={() => setScreen("support")}>{uiText("Contact Support")}</Button>{isCompletedOrder(request) ? <Button onClick={() => setScreen("rateApp")}>{uiText("Rate your experience")}</Button> : null}</div>
+      {isCompletedOrder(request) ? <Button onClick={() => setScreen("rateApp")}>{uiText("Rate your experience")}</Button> : null}
       <OrderActions order={request} refresh={() => { void queryClient.invalidateQueries({ queryKey: ["customer", "requests"] }); }} />
 
       {request.status !== "QUOTE_REQUESTED" ? (
-        <section className="premium-card rounded-[2rem] p-6">
+        <section className="reference-card p-5">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff4dc] text-[var(--darji-orange)]"><Banknote className="h-5 w-5" /></div>
             <div><h2 className="text-lg font-black">{uiText("Price details")}</h2><p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Your saved order charges and travel calculation")}</p></div>
@@ -2829,7 +2537,7 @@ function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { re
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="reference-card grid gap-4 p-5"><h2 className="reference-form-title">{uiText("Order Items")}</h2>
         {items.map((item, index) => (
           <article key={item.id ?? `${item.clothType}-${index}`} className="rounded-2xl border border-[#e6edf5] bg-white p-5">
             <div className="flex gap-4">
@@ -2846,6 +2554,7 @@ function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { re
           </article>
         ))}
       </section>
+      </div><aside className="grid content-start gap-3"><div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Order Summary")}</h2><div className="mt-4 grid gap-2"><SummaryLine label={uiText("Item Total")} value={quoteAmount ? formatMoney(quoteAmount) : uiText("Quote pending")} /><SummaryLine label={uiText("Delivery") } value={formatMoney(deliveryFee)} />{measurementFee ? <SummaryLine label={uiText("Measurement Visit")} value={formatMoney(measurementFee)} /> : null}{discount ? <SummaryLine label={uiText("Discount")} value={`-${formatMoney(discount)}`} /> : null}<SummaryLine label={uiText("Total Amount")} value={request.totalAmount != null ? formatMoney(request.totalAmount) : uiText("Pending")} strong /></div></div><div className="reference-card p-5"><div className="reference-info-list"><div><MapPin className="h-5 w-5" /><div><p className="text-sm font-bold">{uiText("Pickup Address")}</p><p className="text-xs">{request.pickupAddress}</p></div></div><div><CalendarCheck className="h-5 w-5" /><div><p className="text-sm font-bold">{uiText("Estimated Delivery")}</p><p className="text-xs">{estimatedDeliveryDate(request)}</p></div></div><div><CreditCard className="h-5 w-5" /><div><p className="text-sm font-bold">{uiText("Payment Method")}</p><p className="text-xs">{request.paymentMethod || uiText("Not selected")}</p></div></div></div></div></aside></div>
 
       {isCheckoutOpen(request) ? <PendingOrderCheckout request={request} coupons={coupons} onOrderPlaced={onOrderPlaced} /> : null}
     </div>
@@ -2974,10 +2683,10 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
           () => {
             setVerifyingPayment(true);
           },
-          async () => {
+          async (verifiedRequest) => {
             await queryClient.invalidateQueries({ queryKey: ["customer", "requests"] });
             setVerifyingPayment(false);
-            onOrderPlaced(response.request);
+            onOrderPlaced(verifiedRequest);
           },
           (err) => {
             setVerifyingPayment(false);
@@ -3562,68 +3271,14 @@ function AboutDarjiScreen({ setScreen }: { setScreen: (s: CustomerScreen) => voi
   );
 }
 
-function ProfileScreen({ wallet, coupons, notifications, addresses, setScreen, signOut }: { wallet?: WalletSummary; coupons: Coupon[]; notifications: NotificationRow[]; addresses: Address[]; setScreen: (s: CustomerScreen) => void; signOut: () => void; }) {
+function ReferenceProfileScreen({ requests, wallet, addresses, setScreen, signOut }: { requests: TailoringRequest[]; wallet?: WalletSummary; addresses: Address[]; setScreen: (s: CustomerScreen) => void; signOut: () => void }) {
   const user = useAuthStore((state) => state.user);
-  const selectedAvatar = getUserAvatarUrl(user);
+  const recent = [...requests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  const avatar = getUserAvatarUrl(user);
+  return <div className="grid gap-5 lg:grid-cols-[290px_minmax(0,1fr)]"><aside className="grid content-start gap-4"><div className="reference-card overflow-hidden text-center"><div className="reference-festive h-24" /><img src={avatar} alt="" className="relative mx-auto -mt-10 h-20 w-20 rounded-full border-4 border-white object-cover" /><h1 className="mt-2 text-2xl font-black">{user?.name || uiText("My Account")}</h1><p className="text-sm text-[#665950]">{user?.phone ? `+91 ${user.phone}` : ""}</p><button className="reference-action my-4 w-[calc(100%-2rem)]" onClick={() => setScreen("editProfile")}>{uiText("Edit Profile")}</button></div><nav className="reference-card grid p-2" aria-label={uiText("Account menu")}>{[["profile","My Account",UserRound],["orders","Orders & Activity",PackageCheck],["savedAddresses","Addresses",MapPin],["favoriteTailors","Favorite Tailors",Star],["wallet","Payments & Refunds",Wallet],["helpCenter","Help Center",HelpCircle],["notifications","Notifications",Bell],["settings","App Preferences",Ruler]].map(([id,label,Icon]) => { const MenuIcon = Icon as LucideIcon; return <button key={id as string} onClick={() => setScreen(id as CustomerScreen)} className={`${id === "profile" ? "bg-[#fff0cb]" : "hover:bg-[#fff7e9]"} flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold`}><MenuIcon className="h-4 w-4" />{uiText(label as string)}<ChevronRight className="ml-auto h-4 w-4" /></button>; })}<button onClick={signOut} className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-red-700"><LogOut className="h-4 w-4" />{uiText("Logout")}</button></nav></aside><div className="grid content-start gap-4"><div><h2 className="text-4xl font-black tracking-[-.04em]">{uiText("My Account")}</h2><p className="text-sm text-[#665950]">{uiText("Manage your profile, orders, preferences and account settings.")}</p></div><div className="grid gap-4 md:grid-cols-2"><div className="reference-card p-5"><div className="flex items-center justify-between"><h3 className="reference-form-title">{uiText("Favorite Tailors")}</h3><button onClick={() => setScreen("favoriteTailors")} className="text-xs font-bold text-[#cb8200]">{uiText("View All")} →</button></div><p className="reference-form-note mt-2">{uiText("Your saved tailors and their profiles.")}</p><button className="reference-outline mt-5 w-full" onClick={() => setScreen("favoriteTailors")}>{uiText("Browse Favorites")}<ArrowRight className="h-4 w-4" /></button></div><div className="reference-card p-5"><div className="flex items-center justify-between"><h3 className="reference-form-title">{uiText("Saved Addresses")}</h3><button onClick={() => setScreen("savedAddresses")} className="text-xs font-bold text-[#cb8200]">{uiText("View All")} →</button></div><div className="mt-3 grid gap-2">{addresses.slice(0,2).map((address) => <div key={address.id} className="rounded-xl border border-[#ead9c2] bg-white p-3"><p className="text-sm font-bold">{address.label || uiText("Address")}</p><p className="line-clamp-2 text-xs text-[#675b52]">{addressText(address)}</p></div>)}{!addresses.length ? <p className="reference-form-note">{uiText("No saved addresses yet.")}</p> : null}</div><button onClick={() => setScreen("savedAddresses")} className="reference-outline mt-3 w-full">{uiText("Add New Address")}</button></div></div><div className="grid gap-4 md:grid-cols-2"><div className="reference-card p-5"><div className="flex items-center justify-between"><h3 className="reference-form-title">{uiText("Order History")}</h3><button onClick={() => setScreen("orders")} className="text-xs font-bold text-[#cb8200]">{uiText("View All Orders")} →</button></div>{recent ? <div className="mt-3 rounded-xl border border-[#ead9c2] bg-white p-3"><p className="text-sm font-black">{requestCode(recent)}</p><p className="text-xs text-[#675b52]">{clothingItemTitle(primaryOrderItem(recent))} · {statusLabel(recent)}</p></div> : <p className="reference-form-note mt-3">{uiText("Your orders will appear here.")}</p>}</div><div className="grid gap-3"><button onClick={() => setScreen("settings")} className="reference-card flex items-center gap-3 p-5 text-left"><Ruler className="h-6 w-6 text-[#d99100]" /><div><p className="font-black">{uiText("App Preferences")}</p><p className="text-xs text-[#675b52]">{uiText("Language and notifications")}</p></div><ChevronRight className="ml-auto h-4 w-4" /></button><button onClick={() => setScreen("wallet")} className="reference-card flex items-center gap-3 p-5 text-left"><Wallet className="h-6 w-6 text-[#d99100]" /><div><p className="font-black">{uiText("Wallet & Payments")}</p><p className="text-xs text-[#675b52]">{formatMoney(wallet?.balance)} {uiText("available")}</p></div><ChevronRight className="ml-auto h-4 w-4" /></button></div></div><div className="reference-card p-5"><h3 className="reference-form-title">{uiText("Help & Support")}</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><button className="reference-outline" onClick={() => setScreen("helpCenter")}>{uiText("Help Center")}<ChevronRight className="h-4 w-4" /></button><button className="reference-outline" onClick={() => setScreen("support")}>{uiText("Chat with Support")}<ChevronRight className="h-4 w-4" /></button></div></div><ReferenceTrustStrip /></div></div>;
+}
 
-  return (
-    <div className="grid gap-6 pb-20">
-      <div className="flex items-center gap-5 rounded-[2rem] border border-[#efcf92] bg-[#fffaf0] p-6 shadow-sm">
-         <img src={selectedAvatar} alt="Profile" className="h-16 w-16 rounded-2xl border-2 border-white object-cover shadow-md bg-[#f1f5f9]" />
-         <div>
-           <h1 className="text-2xl font-black text-[var(--darji-ink)]">{user?.name ?? "Darji Customer"}</h1>
-           <p className="font-bold text-[var(--darji-muted)] mt-1">+91 {user?.phone}</p>
-         </div>
-      </div>
-      
-      <section>
-        <div className="mb-3 flex items-center gap-2 px-1">
-          <div className="h-4 w-1 rounded-full bg-[var(--darji-orange)]" />
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Account")}</p>
-        </div>
-        <div className="rounded-[1.5rem] border border-[var(--darji-line)] bg-white overflow-hidden shadow-[0_12px_24px_rgba(8,17,31,0.03)]">
-          <ProfileRow icon={UserRound} label={uiText("Edit Profile")} value={uiText("Name, Gender, DOB")} onClick={() => setScreen("editProfile")} />
-          <ProfileRow icon={MapPin} label={uiText("Saved Addresses")} value={`${addresses.length} ${uiText("Saved")}`} noBorder onClick={() => setScreen("savedAddresses")} />
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center gap-2 px-1">
-          <div className="h-4 w-1 rounded-full bg-[var(--darji-orange)]" />
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Orders & Wallet")}</p>
-        </div>
-        <div className="rounded-[1.5rem] border border-[var(--darji-line)] bg-white overflow-hidden shadow-[0_12px_24px_rgba(8,17,31,0.03)]">
-          <ProfileRow icon={PackageCheck} label={uiText("Order History")} value={uiText("View active and past orders")} onClick={() => setScreen("orders")} />
-          <ProfileRow icon={Wallet} label={uiText("Darji Wallet")} value={formatMoney(wallet?.balance)} noBorder onClick={() => setScreen("wallet")} />
-        </div>
-      </section>
-
-      <section className="divide-y divide-gray-200">{[["favoriteTailors", "Saved Tailors"], ["coupons", "Coupons"], ["notifications", "Notifications"], ["settings", "Settings"], ["appLanguage", "App language"], ["notificationPreferences", "Notification preferences"], ["measurementGuide", "Measurement guide"], ["fabricCare", "Fabric & Care Tips"], ["customerStories", "Customer stories"], ["rateApp", "Rate your experience"], ["cancellationPolicy", "Cancellation policy"]].map(([target, label]) => <ProfileRow key={target} icon={target === "notifications" ? Bell : target === "rateApp" ? Star : ChevronRight} label={uiText(label)} onClick={() => setScreen(target as CustomerScreen)} />)}</section>
-
-      <section>
-        <div className="mb-3 flex items-center gap-2 px-1">
-          <div className="h-4 w-1 rounded-full bg-[var(--darji-orange)]" />
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Support")}</p>
-        </div>
-        <div className="rounded-[1.5rem] border border-[var(--darji-line)] bg-white overflow-hidden shadow-[0_12px_24px_rgba(8,17,31,0.03)]">
-          <ProfileRow icon={Headphones} label={uiText("Chat with Support")} value={uiText("Contact our support team")} onClick={() => setScreen("support")} />
-          <ProfileRow icon={HelpCircle} label={uiText("Help Center")} value={uiText("Payments, Refunds & more")} noBorder onClick={() => setScreen("helpCenter")} />
-        </div>
-      </section>
-      
-      <section>
-        <div className="mb-3 flex items-center gap-2 px-1">
-          <div className="h-4 w-1 rounded-full bg-[var(--darji-orange)]" />
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--darji-orange)]">{uiText("Legal & App")}</p>
-        </div>
-        <div className="rounded-[1.5rem] border border-[var(--darji-line)] bg-white overflow-hidden shadow-[0_12px_24px_rgba(8,17,31,0.03)]">
-          <ProfileRow icon={Info} label={uiText("About Darji")} onClick={() => setScreen("aboutDarji")} />
-          <ProfileRow icon={LogOut} label={uiText("Log out")} onClick={signOut} noBorder />
-        </div>
-      </section>
-    </div>
-  );
-}function ContactSupportScreen({ setScreen, orders }: { setScreen: (s: CustomerScreen) => void; orders: TailoringRequest[] }) {
+function ContactSupportScreen({ setScreen, orders }: { setScreen: (s: CustomerScreen) => void; orders: TailoringRequest[] }) {
   const prompt = useCustomerDialog();
   const [view, setView] = useState<"center" | "chat" | "new_chat" | "new_bug">("center");
   const [activeTicket, setActiveTicket] = useState<any>(null);
@@ -4303,28 +3958,23 @@ function CustomerDashboardContent() {
   if (initialLoading) return <LoadingScreen label={uiText("Loading your orders")} />;
 
   return (
-    <main lang={language} className="min-h-screen bg-[#f6f8fb] pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
-      <AppHeader screen={screen} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} syncing={syncing} />
-      <div className="shell py-7">
-        {screen === "home" ? <nav aria-label={uiText("Customer services")} className="mb-5 grid grid-cols-2 gap-2 rounded-2xl border border-[#e6edf5] bg-white p-2 lg:grid-cols-4">{([
-          ["search", "Find Tailors", Search],
-          ["services", "Services", Scissors],
-          ["measurementGuide", "Measurement guide", Ruler],
-          ["fabricCare", "Fabric & Care Tips", BookOpen]
-        ] as const).map(([target, label, Icon]) => <button className="flex min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 text-left text-sm font-black text-[var(--darji-ink)] transition hover:border-amber-200 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500" key={target} onClick={() => setAppScreen(target)}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#fff4dc] text-[var(--darji-orange)]"><Icon className="h-4 w-4" /></span><span className="leading-5">{uiText(label)}</span></button>)}</nav> : null}
-        {extraScreens.includes(screen as ExtraScreen) ? <CustomerExtraScreen screen={screen as ExtraScreen} go={(target) => setAppScreen(target as CustomerScreen)} orders={requestRows} coupons={couponRows} selectedOrder={selectedOrder} openOrder={openOrder} /> : null}
+    <main lang={language} className="customer-order-web min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
+      <AppHeader screen={screen} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} syncing={syncing} pickup={draft.pickup} />
+      <div className="shell py-6">
+        {extraScreens.includes(screen as ExtraScreen) && screen !== "search" ? <CustomerExtraScreen screen={screen as ExtraScreen} go={(target) => setAppScreen(target as CustomerScreen)} orders={requestRows} coupons={couponRows} selectedOrder={selectedOrder} openOrder={openOrder} /> : null}
         {sharedError ? <p className="mb-5 rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(sharedError)}</p> : null}
-        {screen === "home" ? <HomeScreen requests={requestRows} wallet={wallet.data} draft={draft} setScreen={setAppScreen} openOrder={openOrder} /> : null}
+        {screen === "home" ? <ReferenceHomeScreen requests={requestRows} coupons={couponRows} draft={draft} setDraft={setDraft} setScreen={setAppScreen} openOrder={openOrder} /> : null}
+        {screen === "search" ? <ReferenceExploreScreen setScreen={setAppScreen} setDraft={setDraft} /> : null}
         {screen === "newRequest" ? <NewRequestStep draft={draft} setDraft={setDraft} setScreen={setAppScreen} addresses={addressRows} /> : null}
         {screen === "clothIssue" ? <ClothIssueStep draft={draft} setDraft={setDraft} setScreen={setAppScreen} /> : null}
         {screen === "summary" ? <OrderSummaryStep draft={draft} setDraft={setDraft} setScreen={setAppScreen} setSelectedQuote={setSelectedQuote} /> : null}
         {screen === "quotes" ? <QuotesStep draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setAppScreen} /> : null}
         {screen === "confirm" && selectedQuote ? <ConfirmOrderStep draft={draft} quote={selectedQuote} coupons={couponRows} setDraft={setDraft} setScreen={setAppScreen} onOrderPlaced={handleOrderPlaced} /> : null}
         {screen === "confirm" && !selectedQuote ? <QuotesStep draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setAppScreen} /> : null}
-        {screen === "orders" ? <OrdersScreen requests={requestRows} openOrder={openOrder} setScreen={setAppScreen} /> : null}
+        {screen === "orders" ? <ReferenceOrdersScreen requests={requestRows} openOrder={openOrder} setScreen={setAppScreen} /> : null}
         {screen === "orderDetails" && selectedOrder ? <OrderDetailsScreen request={selectedOrder} coupons={couponRows} setScreen={setAppScreen} onOrderPlaced={handleOrderPlaced} /> : null}
-        {screen === "orderDetails" && !selectedOrder ? <OrdersScreen requests={requestRows} openOrder={openOrder} setScreen={setAppScreen} /> : null}
-        {screen === "profile" ? <ProfileScreen wallet={wallet.data} coupons={couponRows} notifications={notificationRows} addresses={addressRows} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} /> : null}
+        {screen === "orderDetails" && !selectedOrder ? <ReferenceOrdersScreen requests={requestRows} openOrder={openOrder} setScreen={setAppScreen} /> : null}
+        {screen === "profile" ? <ReferenceProfileScreen requests={requestRows} wallet={wallet.data} addresses={addressRows} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} /> : null}
         {screen === "editProfile" ? <EditProfileScreen setScreen={setAppScreen} /> : null}
         {screen === "support" ? <ContactSupportScreen setScreen={setAppScreen} orders={requestRows} /> : null}
         {screen === "savedAddresses" ? <SavedAddressesScreen setScreen={setAppScreen} /> : null}
