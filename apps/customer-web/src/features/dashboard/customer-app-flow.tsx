@@ -901,16 +901,24 @@ function AppHeader({
 }
 
 function BottomNav({ screen, setScreen }: { screen: CustomerScreen; setScreen: (screen: CustomerScreen) => void }) {
+  const mobileNav = [
+    { screen: "home", label: "Home", icon: Home },
+    { screen: "search", label: "Explore", icon: Search },
+    { screen: "newRequest", label: "New Request", icon: Plus },
+    { screen: "orders", label: "Orders", icon: PackageCheck },
+    { screen: "profile", label: "Profile", icon: UserRound }
+  ] as const;
   return (
-    <nav style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }} className="fixed inset-x-0 bottom-0 z-40 border-t border-[#e6edf5] bg-white/94 px-3 py-2 backdrop-blur-xl md:hidden">
+    <nav aria-label={uiText("Main navigation")} style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }} className="fixed inset-x-0 bottom-0 z-40 border-t border-[#e6edf5] bg-white/94 px-3 py-2 backdrop-blur-xl md:hidden">
       <div className="grid grid-cols-5 gap-1">
-        {appNav.map((item) => {
+        {mobileNav.map((item) => {
           const Icon = item.icon;
           const active = item.screen === screen;
+          const isCreate = item.screen === "newRequest";
           return (
-            <button key={item.screen} onClick={() => setScreen(item.screen)} className={`grid min-h-14 place-items-center rounded-2xl text-xs font-black ${active ? "bg-[var(--darji-ink)] text-white" : "text-[var(--darji-muted)]"}`}>
-              <Icon className="h-5 w-5" />
-              {uiText(item.label)}
+            <button key={item.screen} type="button" aria-label={uiText(item.label)} aria-current={active ? "page" : undefined} onClick={() => setScreen(item.screen)} className={`reference-mobile-tab ${isCreate ? "reference-mobile-create" : ""} ${active && !isCreate ? "is-active" : ""}`}>
+              <span className={isCreate ? "reference-mobile-create-icon" : ""}><Icon className="h-5 w-5" strokeWidth={isCreate ? 2.7 : 2} /></span>
+              <span>{uiText(item.label)}</span>
             </button>
           );
         })}
@@ -961,25 +969,49 @@ function OrderPlacedModal({ success, onClose, onOrders }: { success?: OrderSucce
   );
 }
 
-const referenceCategories = [
-  { label: "Alteration", detail: "Fit and size changes", image: "/animations/service-alterations.png" },
-  { label: "Repair", detail: "Tears, zips and more", image: "/animations/service-repairs.png" },
-  { label: "Custom Stitching", detail: "Stitched for you", image: "/animations/service-custom-stitching.png" },
-  { label: "Men's Wear", detail: "Everyday and occasion wear", image: "/animations/service-mens-wear.png" },
-  { label: "Women's Wear", detail: "Traditional and modern fits", image: "/animations/service-womens-wear.png" },
-  { label: "Kids' Wear", detail: "Comfortable custom fits", image: "/animations/service-kids-wear.png" }
+const appAsset = (group: string, file: string) => `/customer-app-assets/${group}/${file}`;
+const homeServiceCategories = [
+  { label: "Alteration", detail: "Fit and size changes", image: appAsset("home-services", "alteration.jpg") },
+  { label: "Repair", detail: "Tear, hole, zipper and more", image: appAsset("home-services", "repair.jpg") },
+  { label: "Embroidery", detail: "Decorative and custom work", image: appAsset("home-services", "embroidery.jpg") },
+  { label: "Custom Stitching", detail: "Stitch from scratch", image: appAsset("home-services", "custom_stitching.jpg") }
+];
+const exploreCategories = [
+  { label: "Men Ethnic", detail: "Kurta, Sherwani & more", image: appAsset("search-categories", "men_ethnic.jpg") },
+  { label: "Men Formal", detail: "Shirts, Pants & Blazers", image: appAsset("search-categories", "men_formal.jpg") },
+  { label: "Women Ethnic", detail: "Saree, Suit & Lehenga", image: appAsset("search-categories", "women_ethnic.jpg") },
+  { label: "Women Western", detail: "Dresses, Tops & more", image: appAsset("search-categories", "women_western.jpg") },
+  { label: "Kids", detail: "Boys & Girls Wear", image: appAsset("search-categories", "kids.jpg") },
+  { label: "Uniforms", detail: "School & College Wear", image: appAsset("search-categories", "uniforms.jpg") },
+  { label: "Home & More", detail: "Curtains, Cushion & more", image: appAsset("search-categories", "home_more.jpg") },
+  { label: "Alterations", detail: "Repairs & Alterations", image: appAsset("search-categories", "alterations.jpg") }
+];
+const customProjectCategories = [
+  { label: "Home & Decor", detail: "Curtains, cushions and covers", image: appAsset("custom-requests", "home_decor.jpg") },
+  { label: "Costumes", detail: "School, dance and event", image: appAsset("custom-requests", "costumes_special_projects.jpg") },
+  { label: "Upcycling", detail: "Turn old fabric into something new", image: appAsset("custom-requests", "upcycling.jpg") },
+  { label: "Bags & Accessories", detail: "Totes, potlis and pouches", image: appAsset("custom-requests", "bags_fabric_accessories.jpg") },
+  { label: "Personalized Items", detail: "Patches, badges and labels", image: appAsset("custom-requests", "personalized_fabric_items.jpg") },
+  { label: "Pet Clothing", detail: "Outfits, bandanas and covers", image: appAsset("custom-requests", "pet_clothing_accessories.jpg") }
+];
+const appHowItWorks = [
+  { title: "Place a Request", description: "Tell us what you need", image: appAsset("home-sections", "how_share_request.jpg") },
+  { title: "Compare Quotes", description: "Choose your tailor", image: appAsset("home-sections", "how_compare_quotes.jpg") },
+  { title: "Confirm Securely", description: "Complete your booking", image: appAsset("home-sections", "how_confirm_securely.jpg") },
+  { title: "Pickup from Home", description: "We collect your garment", image: appAsset("home-sections", "how_doorstep_pickup.jpg") },
+  { title: "Receive & Rate", description: "Get it back at home", image: appAsset("home-sections", "how_receive_rate.jpg") }
 ];
 
 function ReferenceExploreScreen({ setScreen, setDraft }: { setScreen: (screen: CustomerScreen) => void; setDraft: Dispatch<SetStateAction<RequestDraft>> }) {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"categories" | "tailors">("categories");
-  const categories = referenceCategories.filter((category) => `${category.label} ${category.detail}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const categories = exploreCategories.filter((category) => `${category.label} ${category.detail}`.toLowerCase().includes(search.trim().toLowerCase()));
   function chooseCategory(label: string) {
-    const workType = label === "Alteration" ? "Alteration & Fitting" : label === "Repair" ? "Repair & Mending" : label === "Custom Stitching" ? "New Stitching" : undefined;
+    const workType = label === "Alteration" || label === "Alterations" ? "Alteration & Fitting" : label === "Repair" ? "Repair & Mending" : label === "Custom Stitching" ? "New Stitching" : undefined;
     if (workType) setDraft((current) => ({ ...current, workType, homeMeasurementBooked: workType === "New Stitching" || current.homeMeasurementBooked }));
     setScreen("newRequest");
   }
-  return <div className="grid gap-5"><section className="reference-hero reference-card min-h-[260px] p-7 sm:p-9"><div className="max-w-xl"><h1 className="text-4xl font-black tracking-[-.04em]">{uiText("Explore Services,")}<br />{uiText("Categories and Tailors")}</h1><p className="mt-3 max-w-md text-sm text-[#574b43]">{uiText("Find trusted tailors, discover services, and get your clothes stitched, altered or repaired with ease.")}</p><label className="mt-5 flex items-center gap-3 rounded-full border border-[#e5bd7f] bg-white/90 px-5 py-3 shadow-sm"><Search className="h-5 w-5" /><input aria-label={uiText("Search services and categories")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={uiText("Search services or categories...")} className="w-full border-0 bg-transparent text-sm outline-none" /></label><div className="mt-4 inline-flex rounded-full border border-[#eed9b9] bg-white p-1"><button className={`${tab === "categories" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("categories")}>{uiText("Categories")}</button><button className={`${tab === "tailors" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("tailors")}>{uiText("Tailors")}</button></div></div></section>{tab === "categories" ? <section><h2 className="reference-section-heading mb-3">{uiText("Browse by Category")}</h2><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{categories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}{!categories.length ? <p className="text-sm">{uiText("No category matches your search.")}</p> : null}</div></section> : null}<section><h2 className="reference-section-heading mb-3">{uiText("Top Tailors Near You")}</h2><div className="reference-tailor-directory reference-card p-5"><TailorDirectory savedOnly={false} onBook={() => setScreen("newRequest")} /></div></section><ReferenceTrustStrip /></div>;
+  return <div className="grid gap-5"><section className="reference-hero reference-card min-h-[260px] p-7 sm:p-9"><div className="max-w-xl"><h1 className="text-4xl font-black tracking-[-.04em]">{uiText("Explore Services,")}<br />{uiText("Categories and Tailors")}</h1><p className="mt-3 max-w-md text-sm text-[#574b43]">{uiText("Find trusted tailors, discover services, and get your clothes stitched, altered or repaired with ease.")}</p><label className="mt-5 flex items-center gap-3 rounded-full border border-[#e5bd7f] bg-white/90 px-5 py-3 shadow-sm"><Search className="h-5 w-5" /><input aria-label={uiText("Search services and categories")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={uiText("Search services or categories...")} className="w-full border-0 bg-transparent text-sm outline-none" /></label><div className="mt-4 inline-flex rounded-full border border-[#eed9b9] bg-white p-1"><button className={`${tab === "categories" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("categories")}>{uiText("Categories")}</button><button className={`${tab === "tailors" ? "reference-action" : "reference-outline"} !min-h-9 !rounded-full`} onClick={() => setTab("tailors")}>{uiText("Tailors")}</button></div></div></section>{tab === "categories" ? <section><h2 className="reference-section-heading mb-3">{uiText("Browse by Category")}</h2><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">{categories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}{!categories.length ? <p className="text-sm">{uiText("No category matches your search.")}</p> : null}</div></section> : null}<section><h2 className="reference-section-heading mb-3">{uiText("Top Tailors Near You")}</h2><div className="reference-tailor-directory reference-card p-5"><TailorDirectory savedOnly={false} onBook={() => setScreen("newRequest")} /></div></section><ReferenceTrustStrip /></div>;
 }
 
 function ReferenceHomeScreen({ requests, coupons, draft, setDraft, setScreen, openOrder }: { requests: TailoringRequest[]; coupons: Coupon[]; draft: RequestDraft; setDraft: Dispatch<SetStateAction<RequestDraft>>; setScreen: (screen: CustomerScreen) => void; openOrder: (request: TailoringRequest) => void }) {
@@ -999,24 +1031,25 @@ function ReferenceHomeScreen({ requests, coupons, draft, setDraft, setScreen, op
           <div className="relative z-10 max-w-[450px]">
             <h1 className="text-4xl font-black leading-[1.08] tracking-[-.045em] sm:text-5xl">{uiText("Get Tailoring")}<br />{uiText("Done at Your Doorstep")}</h1>
             <p className="mt-4 max-w-[380px] text-sm leading-6 text-[#453a34]">{uiText("Alteration, repair, custom stitching and more — with trusted tailors, pickup and delivery at home.")}</p>
-            <button onClick={() => setScreen(nextScreen)} className="reference-action mt-5">{uiText(hasDraft ? "Continue Request" : "Start Request")} <ArrowRight className="h-4 w-4" /></button>
+            <button onClick={() => setScreen(nextScreen)} className="reference-action reference-start-request mt-5">{uiText(hasDraft ? "Continue Request" : "Start Request")} <ArrowRight className="h-4 w-4" /></button>
           </div>
           <div className="relative z-10 mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#3b2b21]"><span className="flex items-center gap-2"><Truck className="h-4 w-4 text-[#e79d00]" />Doorstep Pickup & Delivery</span><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-[#e79d00]" />Verified Tailors</span><span className="flex items-center gap-2"><Shirt className="h-4 w-4 text-[#e79d00]" />Quality Service</span></div>
         </section>
-        <div className="grid gap-3 sm:grid-cols-2"><div className="reference-card flex min-h-24 items-center gap-4 bg-[#fff1ce] p-5"><Truck className="h-11 w-11 text-[#df9200]" /><div><p className="text-lg font-black">{offer ? couponLabel(offer) : uiText("Doorstep service")}</p><p className="text-sm">{offer ? `${uiText("Use code")}: ${offer.code}` : uiText("Pickup and delivery at home")}</p></div></div><button onClick={() => setScreen("newRequest")} className="reference-card reference-festive min-h-24 p-5 text-left"><span className="rounded-lg bg-[#8f2815] px-2 py-1 text-xs font-black text-white">{uiText("TAILORING")}</span><p className="mt-2 max-w-44 text-lg font-black">{uiText("Made for your occasion")}</p></button></div>
+        <div className="grid gap-3 sm:grid-cols-2"><div className="reference-card flex min-h-24 items-center gap-4 bg-[#fff1ce] p-5"><img src={appAsset("home-sections", "offers_benefits.jpg")} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" /><div><p className="text-lg font-black">{offer ? couponLabel(offer) : uiText("Doorstep service")}</p><p className="text-sm">{offer ? `${uiText("Use code")}: ${offer.code}` : uiText("Pickup and delivery at home")}</p></div></div><button onClick={() => setScreen("newRequest")} className="reference-card reference-festive min-h-24 p-5 text-left"><span className="rounded-lg bg-[#8f2815] px-2 py-1 text-xs font-black text-white">{uiText("TAILORING")}</span><p className="mt-2 max-w-44 text-lg font-black">{uiText("Made for your occasion")}</p></button></div>
       </div>
       <aside className="grid content-start gap-4">
         <div className="reference-card p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-black">{uiText("Your Orders")}</h2><button onClick={() => setScreen("orders")} className="flex items-center gap-1 text-xs font-bold text-[#ce8200]">{uiText("View All")} <ArrowRight className="h-4 w-4" /></button></div>{activeOrder ? <button onClick={() => openOrder(activeOrder)} className="mt-4 w-full rounded-xl border border-[#eed9b9] bg-white p-4 text-left"><div className="flex items-center gap-3"><div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-[#fff2d7]">{firstMediaUrl(primaryOrderItem(activeOrder)) ? <img src={firstMediaUrl(primaryOrderItem(activeOrder))} alt="" className="h-full w-full object-cover" /> : <Shirt className="h-6 w-6 text-[#d99500]" />}</div><div className="min-w-0 flex-1"><p className="text-sm font-black">{requestCode(activeOrder)}</p><p className="truncate text-xs text-[#655a52]">{clothingItemTitle(primaryOrderItem(activeOrder))}</p><span className="mt-1 inline-block rounded-full bg-[#e1efff] px-2 py-1 text-[10px] font-bold text-[#2462aa]">{statusLabel(activeOrder)}</span></div><ChevronRight className="h-4 w-4" /></div><div className="reference-status-line mt-5"><i className="is-done">✓</i><span className="is-done" /><i className="is-done">✓</i><span className="is-done" /><i className="is-current" /><span /><i /></div><div className="mt-2 flex justify-between text-[10px] font-semibold text-[#574c44]"><span>Requested</span><span>Tailor</span><span>In progress</span><span>Delivered</span></div></button> : <p className="mt-4 rounded-xl border border-dashed border-[#e9d2ae] p-4 text-sm text-[#655a52]">{uiText("Your current order will appear here.")}</p>}<button onClick={() => setScreen("orders")} className="reference-outline mt-3 w-full"><PackageCheck className="h-4 w-4 text-[#db9200]" />{uiText("Track All Orders")}<ChevronRight className="ml-auto h-4 w-4" /></button></div>
         <div className="reference-card p-5"><h2 className="text-lg font-black">{uiText("Need Help?")}</h2><button onClick={() => setScreen("support")} className="reference-outline mt-4 w-full justify-start"><MessageSquare className="h-5 w-5" />{uiText("Chat with Support")}<ChevronRight className="ml-auto h-4 w-4" /></button><button onClick={() => setScreen("helpCenter")} className="reference-outline mt-2 w-full justify-start"><HelpCircle className="h-5 w-5" />{uiText("Help Center")}<ChevronRight className="ml-auto h-4 w-4" /></button></div>
       </aside>
     </div>
-    <section><div className="mb-3 flex items-center justify-between"><h2 className="reference-section-heading">{uiText("What do you need?")}</h2><button onClick={() => setScreen("search")} className="flex items-center gap-1 text-sm font-bold text-[#ce8200]">{uiText("Explore Services")}<ArrowRight className="h-4 w-4" /></button></div><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{referenceCategories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}</div></section>
-    <section><h2 className="reference-section-heading mb-3">{uiText("How Darji Works")}</h2><div className="grid gap-3 md:grid-cols-4">{[["Place a Request", "Tell us what you need", MessageSquare], ["Pickup from Home", "We collect your garment", Package], ["Tailoring by Experts", "Verified tailors work on it", Scissors], ["Delivery to You", "Get it back at home", Truck]].map(([title, description, Icon], index) => { const StepIcon = Icon as LucideIcon; return <div key={title as string} className="reference-card flex items-center gap-3 p-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#fff0cb] text-[#db9200]"><StepIcon className="h-5 w-5" /></span><div><p className="text-sm font-black">{index + 1}. {uiText(title as string)}</p><p className="text-xs text-[#635852]">{uiText(description as string)}</p></div></div>; })}</div></section>
+    <section><div className="mb-3 flex items-center justify-between"><h2 className="reference-section-heading">{uiText("What do you need?")}</h2><button onClick={() => setScreen("search")} className="flex items-center gap-1 text-sm font-bold text-[#ce8200]">{uiText("Explore Services")}<ArrowRight className="h-4 w-4" /></button></div><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">{homeServiceCategories.map((category) => <button key={category.label} onClick={() => chooseCategory(category.label)} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}</div></section>
+    <section><h2 className="reference-section-heading mb-3">{uiText("Explore More Categories")}</h2><div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{customProjectCategories.map((category) => <button key={category.label} onClick={() => setScreen("newRequest")} className="reference-category reference-card overflow-hidden p-3 text-left transition"><img src={category.image} alt="" /><p className="mt-2 text-sm font-black">{uiText(category.label)}</p><p className="text-xs text-[#635852]">{uiText(category.detail)}</p></button>)}</div></section>
+    <section><h2 className="reference-section-heading mb-3">{uiText("How Darji Works")}</h2><div className="grid gap-3 md:grid-cols-5">{appHowItWorks.map((step, index) => <div key={step.title} className="reference-card flex items-center gap-3 p-4"><img src={step.image} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" /><div><p className="text-sm font-black">{index + 1}. {uiText(step.title)}</p><p className="text-xs text-[#635852]">{uiText(step.description)}</p></div></div>)}</div></section>
     <ReferenceTrustStrip />
   </div>;
 }
 
-function ReferenceTrustStrip() { return <div className="reference-trust-strip"><div><CheckCircle2 className="h-5 w-5" />{uiText("Verified & Experienced Tailors")}</div><div><Truck className="h-5 w-5" />{uiText("Doorstep Pickup & Delivery")}</div><div><CheckCircle2 className="h-5 w-5" />{uiText("Secure Handling")}</div></div>; }
+function ReferenceTrustStrip() { return <div className="reference-trust-strip"><div><img src={appAsset("home-sections", "why_trusted_tailors.jpg")} alt="" />{uiText("Verified & Experienced Tailors")}</div><div><img src={appAsset("home-sections", "why_doorstep.jpg")} alt="" />{uiText("Doorstep Pickup & Delivery")}</div><div><img src={appAsset("home-sections", "why_secure.jpg")} alt="" />{uiText("Secure Handling")}</div></div>; }
 
 function MediaPreviewGrid({ local, uploaded, onRemoveLocal, onRemoveUploaded }: { local?: LocalMedia[]; uploaded?: UploadedMedia[]; onRemoveLocal?: (id: string) => void; onRemoveUploaded?: (id: string) => void }) {
   const items = [
@@ -2021,7 +2054,7 @@ function QuotesStep({
     <FlowLayout screen="quotes" title={uiText(visibleQuotes.length ? "Tailor Quotations" : "Searching for Tailors")} onBack={() => setScreen("orders")} setScreen={setScreen}>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] text-left">
         <section className="grid gap-5">
-          <div className="reference-card flex flex-col justify-between gap-4 bg-[url('/customer-slider/festive-special.webp')] bg-cover bg-center p-5 sm:flex-row sm:items-center">
+          <div className="reference-card flex flex-col justify-between gap-4 reference-festive p-5 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-[#fff2d8] text-[var(--darji-orange)] flex items-center justify-center shrink-0 shadow-inner">
                 <Ticket className="h-5 w-5" />
