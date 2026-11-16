@@ -1822,9 +1822,9 @@ export async function getDeliveryFareSettingsController(_req: Request, res: Resp
         $setOnInsert: {
           key: "delivery_fare_settings",
           value: {
-            normal: { partnerFare: 8, customerCharge: 30 },
-            express: { partnerFare: 8, customerCharge: 40 },
-            instant: { partnerFare: 15, customerCharge: 50 }
+            normal: { partnerFare: 8, customerCharge: 129 },
+            express: { partnerFare: 8, customerCharge: 179 },
+            instant: { partnerFare: 15, customerCharge: 199 }
           }
         }
       },
@@ -1834,9 +1834,9 @@ export async function getDeliveryFareSettingsController(_req: Request, res: Resp
   const val = setting?.value as any;
   if (val && typeof val.normal !== "object") {
     const migratedValue = {
-      normal: { partnerFare: typeof val.normal === "number" ? val.normal : 8, customerCharge: 30 },
-      express: { partnerFare: typeof val.express === "number" ? val.express : 8, customerCharge: 40 },
-      instant: { partnerFare: typeof val.instant === "number" ? val.instant : 15, customerCharge: 50 }
+      normal: { partnerFare: typeof val.normal === "number" ? val.normal : 8, customerCharge: 129 },
+      express: { partnerFare: typeof val.express === "number" ? val.express : 8, customerCharge: 179 },
+      instant: { partnerFare: typeof val.instant === "number" ? val.instant : 15, customerCharge: 199 }
     };
     setting = await SettingModel.findOneAndUpdate(
       { key: "delivery_fare_settings" },
@@ -1844,7 +1844,13 @@ export async function getDeliveryFareSettingsController(_req: Request, res: Resp
       { returnDocument: "after" }
     );
   }
-  res.json({ data: setting?.value });
+  const value = setting?.value as any;
+  res.json({ data: {
+    ...value,
+    normal: { ...value?.normal, customerCharge: 129 },
+    express: { ...value?.express, customerCharge: 179 },
+    instant: { ...value?.instant, customerCharge: 199 }
+  } });
 }
 
 export async function updateDeliveryFareSettingsController(req: Request, res: Response) {

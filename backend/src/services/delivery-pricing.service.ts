@@ -2,10 +2,10 @@ export type DeliveryMode = "STANDARD" | "EXPRESS" | "INSTANT";
 export type LatLng = { lat: number; lng: number };
 
 export const DELIVERY_PRICING = {
-  customer: {
-    STANDARD: { base: 49, per100m: 0.5 },
-    EXPRESS: { base: 59, per100m: 0.5 },
-    INSTANT: { base: 69, per100m: 1 }
+  customerCharges: {
+    STANDARD: 129,
+    EXPRESS: 179,
+    INSTANT: 199
   },
   batchPayout: {
     base: 20,
@@ -35,8 +35,7 @@ export function deliveryModeFromUrgency(urgency?: string | null): DeliveryMode {
 export function customerDeliveryCharge(mode: DeliveryMode, oneWayDistanceMeters: number) {
   const oneWay = Math.max(0, Number(oneWayDistanceMeters) || 0);
   const totalDistanceMeters = oneWay * 2;
-  const config = DELIVERY_PRICING.customer[mode];
-  const deliveryFee = Math.round(config.base + (totalDistanceMeters / 100) * config.per100m);
+  const deliveryFee = DELIVERY_PRICING.customerCharges[mode];
   return {
     oneWayDistanceMeters: Math.round(oneWay),
     totalChargeableDistanceMeters: Math.round(totalDistanceMeters),
@@ -198,5 +197,7 @@ export function extractTailorShopPoint(tailor: Record<string, unknown> | null | 
   return pointFrom(verification?.shop?.location)
     ?? pointFrom(verification?.shop)
     ?? pointFrom(verificationDraft?.shop?.location)
-    ?? pointFrom(verificationDraft?.shop);
+    ?? pointFrom(verificationDraft?.shop)
+    ?? (verification?.shop?.workFromHome ? pointFrom(verification?.personal?.location) : undefined)
+    ?? (verificationDraft?.shop?.workFromHome ? pointFrom(verificationDraft?.personal?.location) : undefined);
 }

@@ -702,9 +702,10 @@ async function hydrateTailorQuote(quoteInput: unknown) {
     TailoringRequestModel.findById(String(quote.requestId)).select("urgency pickupLocation pickupAddress selectedQuoteId deliveryFee customerToTailorDistanceMeters totalChargeableDistanceMeters deliveryFeeLockedAt")
   ]);
   const quoteDeliveryMode = deliveryModeFromUrgency(String(requestForEstimate?.urgency ?? ""));
+  const fixedDeliveryFee = customerDeliveryCharge(quoteDeliveryMode, 0).deliveryFee;
   const isLockedSelection = String(requestForEstimate?.selectedQuoteId ?? "") === String(quote.id ?? quote._id)
     && requestForEstimate?.deliveryFeeLockedAt
-    && Number.isFinite(Number(requestForEstimate.deliveryFee));
+    && Number(requestForEstimate.deliveryFee) === fixedDeliveryFee;
   let deliveryEstimate;
   if (isLockedSelection) {
     deliveryEstimate = {
@@ -715,8 +716,12 @@ async function hydrateTailorQuote(quoteInput: unknown) {
   } else {
     const quoteTailor = tailor?.toJSON() as Record<string, unknown> | undefined;
     const quotePoints = await customerAndTailorPoints(requestForEstimate ?? {}, quoteTailor);
-    const quoteDistance = await roadDistanceMeters(quotePoints.customerPoint, quotePoints.tailorPoint);
-    deliveryEstimate = customerDeliveryCharge(quoteDeliveryMode, quoteDistance);
+    deliveryEstimate = customerDeliveryCharge(
+      quoteDeliveryMode,
+      quotePoints.customerPoint && quotePoints.tailorPoint
+        ? await roadDistanceMeters(quotePoints.customerPoint, quotePoints.tailorPoint)
+        : 0
+    );
   }
   return {
     ...quote,
@@ -1864,12 +1869,11 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
   if (input.status === "picked_up") {
     if (!existingTask.pickupOtpVerifiedAt) throw new AppError(409, "Verify the pickup OTP first");
     if (existingTask.type === "customer_to_tailor") {
-      const requiredPhotos = Math.max(1, Number(existingTask.itemCount ?? 1));
+      const requiredPhotos = 1;
       const clothPhotoCount = existingTask.clothPhotos?.length ?? 0;
       if (clothPhotoCount < requiredPhotos) {
         throw new AppError(409, `Upload pickup photo for item ${clothPhotoCount + 1} of ${requiredPhotos} first`);
       }
-      if (existingTask.sampleProvided && !(existingTask.samplePhotos?.length ?? 0)) throw new AppError(409, "Upload sample photos first");
     }
   } else {
     if (!existingTask.dropOtpVerifiedAt) throw new AppError(409, "Verify the delivery OTP first");
@@ -2819,9 +2823,10 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const expectedPlatformFee = getPlatformFee(tailoringSubtotal);
   const expectedSmallOrderFee = getSmallOrderFee(tailoringSubtotal);
+  const fixedDeliveryFee = customerDeliveryCharge(currentDeliveryMode, 0).deliveryFee;
   const hasLockedDeliveryFee = String(request.selectedQuoteId ?? "") === String(quote.id)
     && request.deliveryFeeLockedAt
-    && Number.isFinite(Number(request.deliveryFee));
+    && Number(request.deliveryFee) === fixedDeliveryFee;
   let lockedDelivery;
   if (hasLockedDeliveryFee) {
     lockedDelivery = {
@@ -2833,10 +2838,9 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     const selectedTailor = await TailorModel.findById(quote.tailorId);
     const selectedTailorJson = selectedTailor?.toJSON() as Record<string, unknown> | undefined;
     const checkoutPoints = await customerAndTailorPoints(request, selectedTailorJson);
-    if (!checkoutPoints.customerPoint || !checkoutPoints.tailorPoint) {
-      throw new AppError(422, "Delivery distance could not be calculated. Refresh the pickup location and try again.");
-    }
-    const customerToTailorDistanceMeters = await roadDistanceMeters(checkoutPoints.customerPoint, checkoutPoints.tailorPoint);
+    const customerToTailorDistanceMeters = checkoutPoints.customerPoint && checkoutPoints.tailorPoint
+      ? await roadDistanceMeters(checkoutPoints.customerPoint, checkoutPoints.tailorPoint)
+      : 0;
     lockedDelivery = customerDeliveryCharge(currentDeliveryMode, customerToTailorDistanceMeters);
   }
   const expectedDeliveryFee = lockedDelivery.deliveryFee;
@@ -3389,10 +3393,9 @@ export async function selectTailorQuoteController(req: Request, res: Response) {
   const selectedTailor = await TailorModel.findById(quote.tailorId);
   if (!selectedTailor) throw new AppError(404, "Tailor not found");
   const selectionPoints = await customerAndTailorPoints(request, selectedTailor.toJSON() as Record<string, unknown>);
-  if (!selectionPoints.customerPoint || !selectionPoints.tailorPoint) {
-    throw new AppError(422, "Delivery distance could not be calculated. Refresh the pickup location and try again.");
-  }
-  const distanceMeters = await roadDistanceMeters(selectionPoints.customerPoint, selectionPoints.tailorPoint);
+  const distanceMeters = selectionPoints.customerPoint && selectionPoints.tailorPoint
+    ? await roadDistanceMeters(selectionPoints.customerPoint, selectionPoints.tailorPoint)
+    : 0;
   const deliveryMode = deliveryModeFromUrgency(request.urgency);
   const deliveryEstimate = customerDeliveryCharge(deliveryMode, distanceMeters);
 

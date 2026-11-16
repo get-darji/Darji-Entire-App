@@ -1756,14 +1756,7 @@ function SummaryLine({ label, value, strong = false }: { label: string; value: s
   );
 }
 
-function DeliverySummaryLine({
-  deliveryFee,
-  urgency,
-  distanceMeters,
-  customerAddress,
-  tailorAddress,
-  tailorName
-}: {
+function DeliverySummaryLine(props: {
   deliveryFee: number;
   urgency?: string;
   distanceMeters?: number;
@@ -1772,6 +1765,7 @@ function DeliverySummaryLine({
   tailorName?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { deliveryFee, urgency, distanceMeters, customerAddress, tailorAddress, tailorName } = props;
 
   const urgencyStr = String(urgency ?? "").toLowerCase();
   const mode = urgencyStr.includes("instant")
@@ -1780,36 +1774,11 @@ function DeliverySummaryLine({
     ? "Express"
     : "Standard";
 
-  const standardBase = mode === "Instant" ? 69 : mode === "Express" ? 59 : 49;
-  const ratePerKm = mode === "Instant" ? 10 : 5;
-  const ratePer100m = mode === "Instant" ? 1.0 : 0.5;
-
   let oneWayMeters = Math.round(Number(distanceMeters) || 0);
-  let baseFare = standardBase;
-  let distanceFare = 0;
-
-  if (oneWayMeters > 0) {
-    const totalMeters = oneWayMeters * 2;
-    distanceFare = Math.round((totalMeters / 100) * ratePer100m);
-    if (deliveryFee !== undefined && deliveryFee > 0) {
-      baseFare = Math.max(0, deliveryFee - distanceFare);
-      if (baseFare === 0) {
-        baseFare = Math.min(deliveryFee, standardBase);
-        distanceFare = Math.max(0, deliveryFee - baseFare);
-      }
-    }
-  } else if (deliveryFee > standardBase) {
-    distanceFare = deliveryFee - standardBase;
-    const totalMeters = Math.round((distanceFare / ratePer100m) * 100);
-    oneWayMeters = Math.round(totalMeters / 2);
-  } else {
-    baseFare = deliveryFee || standardBase;
-    distanceFare = 0;
-    oneWayMeters = 2500;
-  }
-
-  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
-  const totalKm = ((oneWayMeters * 2) / 1000).toFixed(1);
+  const baseFare = deliveryFee;
+  const hasRouteDistance = oneWayMeters > 0;
+  const oneWayKm = hasRouteDistance ? (oneWayMeters / 1000).toFixed(1) : "—";
+  const totalKm = hasRouteDistance ? ((oneWayMeters * 2) / 1000).toFixed(1) : "—";
 
   const customerLabel = customerAddress ? (customerAddress.length > 25 ? `${customerAddress.slice(0, 23)}...` : customerAddress) : "Your Location";
   const tailorLabel = tailorAddress ? (tailorAddress.length > 25 ? `${tailorAddress.slice(0, 23)}...` : tailorAddress) : (tailorName || "Tailor Shop");
@@ -1835,7 +1804,7 @@ function DeliverySummaryLine({
         <div className="border-t border-[#e2e8f0] bg-white p-3 space-y-3 text-xs">
           <div className="flex items-center gap-1.5 font-black text-[#08111f]">
             <Truck className="h-3.5 w-3.5 text-[var(--darji-orange)]" />
-            <span>{uiText("Delivery Fee Calculation")}</span>
+            <span>{uiText("Fixed delivery charge")}</span>
           </div>
 
           <div className="rounded-xl bg-[#f8fafc] p-2.5 space-y-2 border border-[#f1f5f9]">
@@ -1861,26 +1830,20 @@ function DeliverySummaryLine({
               <p className="mt-0.5 font-black text-[#08111f]">{totalKm} {uiText("km")}</p>
             </div>
             <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
-              <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">{uiText("Base Fare (")}{mode})</p>
+              <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">{uiText("Flat Charge (")}{mode})</p>
               <p className="mt-0.5 font-black text-[#08111f]">{formatMoney(baseFare)}</p>
             </div>
-            {distanceFare > 0 && (
-              <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2 col-span-2 sm:col-span-1">
-                <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">{uiText("Distance (")}{formatMoney(ratePerKm)}{uiText("/km)")}</p>
-                <p className="mt-0.5 font-black text-[#08111f]">{formatMoney(distanceFare)}</p>
-              </div>
-            )}
           </div>
 
           <div className="flex items-center justify-between border-t border-[#f1f5f9] pt-2 text-[11px] font-bold">
             <span className="text-[var(--darji-muted)]">{uiText("Breakdown Total")}</span>
             <span className="font-black text-[var(--darji-orange)]">
-              {formatMoney(baseFare)}{distanceFare > 0 ? ` + ${formatMoney(distanceFare)}` : ""} = {formatMoney(deliveryFee)}
+              {formatMoney(baseFare)}
             </span>
           </div>
 
           <p className="text-[10px] font-semibold italic text-[var(--darji-muted)] leading-tight">
-            {uiText("Calculated from customer location to tailor shop address. Covers 2-way doorstep pickup and drop.")}
+            {uiText(`The ${mode.toLowerCase()} charge is fixed and does not change with distance. Pickup and return delivery are included.`)}
           </p>
         </div>
       )}
@@ -2104,13 +2067,15 @@ function QuotesStep({
 }
 
 function QuoteCard({ quote, selected, onSelect }: { quote: TailorQuote; selected: boolean; onSelect: () => void }) {
+  const unavailableReason = quote.deliveryEstimate?.unavailableReason;
   return (
     <button 
       onClick={onSelect} 
+      disabled={Boolean(unavailableReason)}
       className={`reference-card !rounded-2xl p-4 text-left transition-all duration-300 w-full h-full flex flex-col gap-4 ${
         selected 
           ? "!border-[#eba000] bg-[#fff7e8] shadow-md"
-          : "hover:!border-[#eba000]"
+          : unavailableReason ? "cursor-not-allowed opacity-75" : "hover:!border-[#eba000]"
       }`}
     >
       <span className="inline-flex w-fit rounded-full bg-[#fff0cb] px-3 py-1 text-xs font-bold text-[#a76c00]">{uiText("Verified Tailor")}</span>
@@ -2147,7 +2112,8 @@ function QuoteCard({ quote, selected, onSelect }: { quote: TailorQuote; selected
           <p className="mt-1 font-black text-[var(--darji-ink)]">{quote.pickupIncluded === false ? uiText("Extra") : uiText("Included")}</p>
         </div>
       </div>
-      <div className="mt-auto flex items-center justify-between rounded-xl bg-[#fff1d0] p-3"><span className="text-sm font-black">{uiText("Tailor Quote")}</span><strong className="text-xl text-[#ce8500]">{formatMoney(quote.price)}</strong></div><span className="reference-action w-full text-sm">{uiText("Select Quote")} <ArrowRight className="h-4 w-4" /></span>
+      <div className="mt-auto flex items-center justify-between rounded-xl bg-[#fff1d0] p-3"><span className="text-sm font-black">{uiText("Tailor Quote")}</span><strong className="text-xl text-[#ce8500]">{formatMoney(quote.price)}</strong></div>
+      {unavailableReason ? <span className="rounded-xl bg-[#fff1f2] p-3 text-xs font-semibold text-[#9f1239]">{uiText(unavailableReason)}</span> : <span className="reference-action w-full text-sm">{uiText("Select Quote")} <ArrowRight className="h-4 w-4" /></span>}
     </button>
   );
 }
@@ -2175,18 +2141,8 @@ function ConfirmOrderStep({
   const [couponMessage, setCouponMessage] = useState<string>();
   const [verifyingPayment, setVerifyingPayment] = useState(false);
 
-  const faresQuery = useQuery({ queryKey: ["customer", "delivery-fares"], queryFn: customerApi.getDeliveryFares });
-  const fares = faresQuery.data;
-
-  const getCustomerDeliveryFee = (urgency: string) => {
-    const value = String(urgency ?? "").toLowerCase();
-    if (value.includes("instant")) return fares?.instant?.customerCharge ?? 50;
-    if (value.includes("express") || value.includes("urgent")) return fares?.express?.customerCharge ?? 40;
-    return fares?.normal?.customerCharge ?? 30;
-  };
-
   const items = clothingItemsForDraft(draft);
-  const deliveryFee = quote.deliveryEstimate?.deliveryFee ?? getCustomerDeliveryFee(draft.urgency ?? "");
+  const deliveryFee = quote.deliveryEstimate?.deliveryFee ?? deliveryFeeForUrgency(draft.urgency ?? "");
   const homeFee = homeMeasurementFeeForItems(items, quote.deliveryEstimate?.oneWayDistanceMeters);
   const platformFee = getPlatformFee(Number(quote.price ?? 0));
   const smallOrderFee = getSmallOrderFee(Number(quote.price ?? 0));
@@ -2200,6 +2156,7 @@ function ConfirmOrderStep({
     },
     mutationFn: () => {
       if (!draft.backendRequestId) throw new Error("Request ID missing.");
+      if (quote.deliveryEstimate?.unavailableReason) throw new Error(quote.deliveryEstimate.unavailableReason);
       return customerApi.checkout(draft.backendRequestId, {
         quoteId: quote.id,
         paymentMethod,
@@ -2398,7 +2355,8 @@ function ConfirmOrderStep({
                 {discount ? <SummaryLine label={uiText("Discount")} value={`-${formatMoney(discount)}`} /> : null}
                 <SummaryLine label={uiText("Total (incl. taxes)")} value={formatMoney(total)} strong />
                 {checkout.error ? <p className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(checkout.error)}</p> : null}
-                <Button className="reference-action !h-14 w-full text-base mt-4" loading={checkout.isPending} onClick={() => checkout.mutate()}>
+                {quote.deliveryEstimate?.unavailableReason ? <p className="mt-4 rounded-xl bg-[#fff1f2] p-3 text-sm font-semibold text-[#9f1239]">{uiText(quote.deliveryEstimate.unavailableReason)}</p> : null}
+                <Button className="reference-action !h-14 w-full text-base mt-4" disabled={Boolean(quote.deliveryEstimate?.unavailableReason)} loading={checkout.isPending} onClick={() => checkout.mutate()}>
                   {paymentMethod === "COD" ? uiText("Confirm Order") : uiText("Confirm Order & Pay")} {paymentMethod === "COD" ? "" : formatMoney(total)}
                 </Button>
                 <p className="mt-2 text-center text-[10px] font-black text-slate-400 flex items-center justify-center gap-1 uppercase tracking-wider select-none">
@@ -2667,17 +2625,7 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
   const quotes = useQuery({ queryKey: ["customer", "quotes", request.id], queryFn: () => customerApi.quotes(request.id) });
   const visibleQuotes = (quotes.data ?? []).filter((quote) => ["SUBMITTED", "RESERVED", "ACCEPTED"].includes(quote.status));
 
-  const faresQuery = useQuery({ queryKey: ["customer", "delivery-fares"], queryFn: customerApi.getDeliveryFares });
-  const fares = faresQuery.data;
-
-  const getCustomerDeliveryFee = (urgency: string) => {
-    const value = String(urgency ?? "").toLowerCase();
-    if (value.includes("instant")) return fares?.instant?.customerCharge ?? 50;
-    if (value.includes("express") || value.includes("urgent")) return fares?.express?.customerCharge ?? 40;
-    return fares?.normal?.customerCharge ?? 30;
-  };
-
-  const deliveryFee = selectedQuote?.deliveryEstimate?.deliveryFee ?? request.deliveryFee ?? getCustomerDeliveryFee(request.urgency ?? "");
+  const deliveryFee = selectedQuote?.deliveryEstimate?.deliveryFee ?? request.deliveryFee ?? deliveryFeeForUrgency(request.urgency ?? "");
   const homeFee = request.homeMeasurementFee ?? homeMeasurementFeeForItems(request.items ?? [], selectedQuote?.deliveryEstimate?.oneWayDistanceMeters);
   const platformFee = getPlatformFee(Number(selectedQuote?.price ?? 0));
   const smallOrderFee = getSmallOrderFee(Number(selectedQuote?.price ?? 0));
@@ -2691,6 +2639,7 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
     },
     mutationFn: () => {
       if (!selectedQuote) throw new Error("Select a tailor quote first.");
+      if (selectedQuote.deliveryEstimate?.unavailableReason) throw new Error(selectedQuote.deliveryEstimate.unavailableReason);
       return customerApi.checkout(request.id, {
         quoteId: selectedQuote.id,
         paymentMethod,
@@ -2782,7 +2731,8 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
             {discount ? <SummaryLine label={uiText("Coupon discount")} value={`-${formatMoney(discount)}`} /> : null}
             <SummaryLine label={uiText("Payable")} value={formatMoney(total)} strong />
             {checkout.error ? <p className="mt-4 rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(checkout.error)}</p> : null}
-            <Button className="mt-5 w-full" loading={checkout.isPending} onClick={() => checkout.mutate()}>{uiText("Confirm Order")}</Button>
+            {selectedQuote?.deliveryEstimate?.unavailableReason ? <p className="mt-4 rounded-xl bg-[#fff1f2] p-3 text-sm font-semibold text-[#9f1239]">{uiText(selectedQuote.deliveryEstimate.unavailableReason)}</p> : null}
+            <Button className="mt-5 w-full" disabled={Boolean(selectedQuote?.deliveryEstimate?.unavailableReason)} loading={checkout.isPending} onClick={() => checkout.mutate()}>{uiText("Confirm Order")}</Button>
           </div>
         </div>
       ) : null}

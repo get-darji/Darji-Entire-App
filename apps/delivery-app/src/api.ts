@@ -235,9 +235,19 @@ function sendMediaUploadAt(apiUrl: string, files: { uri: string; name: string }[
     request.open("POST", `${apiUrl}/delivery-requests/media`);
     request.setRequestHeader("Authorization", `Bearer ${token}`);
     request.onload = () => {
-      const body = JSON.parse(request.responseText || "{}") as { data?: UploadedMedia[]; message?: string };
+      let body: { data?: UploadedMedia[]; message?: string };
+      try {
+        body = JSON.parse(request.responseText || "{}") as { data?: UploadedMedia[]; message?: string };
+      } catch {
+        reject(withStatus(new Error("The server returned an unreadable photo upload response. Please retry."), request.status));
+        return;
+      }
       if (request.status < 200 || request.status >= 300) reject(withStatus(new Error(body.message ?? "Upload failed"), request.status));
       else {
+        if (!Array.isArray(body.data) || body.data.length !== files.length) {
+          reject(new Error("The server did not save all selected photos. Please retry the upload."));
+          return;
+        }
         markApiUrlReachable(apiUrl);
         resolve(body.data ?? []);
       }

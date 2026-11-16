@@ -36,6 +36,7 @@ export type TailorQuote = {
     oneWayDistanceMeters?: number;
     totalChargeableDistanceMeters?: number;
     deliveryFee?: number;
+    unavailableReason?: string;
   };
   tailor?: {
     id: string;

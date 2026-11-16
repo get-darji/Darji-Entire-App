@@ -1070,9 +1070,9 @@ const VOICE_RECORDING_OPTIONS = {
 };
 
 const urgencyOptions = [
-  { label: "Normal", helper: "Up to 7 days", icon: "calendar-outline", deliveryFee: 30 },
-  { label: "Express", helper: "3-5 days", icon: "flash-outline", deliveryFee: 40 },
-  { label: "Instant Delivery", helper: "Within 24 hours", icon: "rocket-outline", deliveryFee: 50 }
+  { label: "Normal", helper: "Up to 7 days", icon: "calendar-outline", deliveryFee: 129 },
+  { label: "Express", helper: "3-5 days", icon: "flash-outline", deliveryFee: 179 },
+  { label: "Instant Delivery", helper: "Within 24 hours", icon: "rocket-outline", deliveryFee: 199 }
 ] as const;
 
 type MeasurementGuide = {
@@ -1831,7 +1831,10 @@ function createOrderNumber(phone: string, orderCount: number) {
 }
 
 function deliveryFeeForUrgency(urgency?: string) {
-  return urgencyOptions.find((option) => option.label === urgency)?.deliveryFee ?? 0;
+  const value = String(urgency ?? "").toLowerCase();
+  if (value.includes("instant")) return 199;
+  if (value.includes("express") || value.includes("urgent")) return 179;
+  return 129;
 }
 
 function hasHomeMeasurementForDraft(draft: RequestDraft) {
@@ -7002,7 +7005,7 @@ function QuotesScreen({
   function showDeliveryChargeInfo() {
     showDialog({
       title: "Why is my delivery charge different?",
-      message: "Delivery charges are calculated based on the distance between your selected tailor and your home.\n\nDarji is currently expanding in Janakpuri and Uttam Nagar, so some of our tailors may be located farther from you.\n\nFor your order, we need to collect your clothes from your home, deliver them to the tailor for stitching, and bring them back to you after the work is completed.\n\nThat's why delivery charges may vary depending on the tailor you choose.\n\nWe show the delivery charge upfront so you can compare your options before placing an order.",
+      message: "Delivery charges are fixed by the delivery speed you choose: Rs129 for Standard, Rs179 for Express, and Rs199 for Instant Delivery. The same charge applies regardless of the selected tailor or distance. Pickup and return delivery are included.",
       actions: [{ label: "OK" }]
     });
   }
@@ -7522,23 +7525,11 @@ function ConfirmOrderScreen({
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | undefined>();
-  const [deliveryFares, setDeliveryFares] = useState<any>(null);
-
-  useEffect(() => {
-    if (token) {
-      api<any>("/settings/delivery-fares", {}, token)
-        .then((res) => {
-          if (res) setDeliveryFares(res);
-        })
-        .catch(() => {});
-    }
-  }, [token]);
-
   const getCustomerDeliveryFee = (urgency?: string) => {
     const value = String(urgency ?? "").toLowerCase();
-    if (value.includes("instant")) return deliveryFares?.instant?.customerCharge ?? 50;
-    if (value.includes("express") || value.includes("urgent")) return deliveryFares?.express?.customerCharge ?? 40;
-    return deliveryFares?.normal?.customerCharge ?? 30;
+    if (value.includes("instant")) return 199;
+    if (value.includes("express") || value.includes("urgent")) return 179;
+    return 129;
   };
 
   const orderItems = clothingItemsForDraft(draft);

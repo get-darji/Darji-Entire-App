@@ -4,9 +4,9 @@ import { calculateCouponBenefit, type CouponPricingBreakdown } from "@darji/shar
 export const HOME_MEASUREMENT_FEE = 99;
 
 export function deliveryFeeForUrgency(urgency: string) {
-  if (/instant/i.test(urgency)) return 50;
-  if (/urgent|express/i.test(urgency)) return 40;
-  return 30; // Normal or same day
+  if (/instant/i.test(urgency)) return 199;
+  if (/urgent|express/i.test(urgency)) return 179;
+  return 129;
 }
 
 export function getPlatformFee(orderValue: number) {

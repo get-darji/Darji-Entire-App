@@ -3168,6 +3168,7 @@ function ActiveOrderScreenView({
   const [otp, setOtp] = useState("");
   const [updating, setUpdating] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const photoUploadInProgress = useRef(false);
   const [failureModalOpen, setFailureModalOpen] = useState(false);
   const [failureReason, setFailureReason] = useState<(typeof DELIVERY_FAILURE_REASONS)[number] | "">("");
   const pickupOtpVerified = Boolean(order.pickupOtpVerifiedAt);
@@ -3176,11 +3177,11 @@ function ActiveOrderScreenView({
   const requiredPhotoCount = deliveryItemCount(order);
   const clothPhotoCount = order.clothPhotos?.length ?? 0;
   const deliveryPhotoCount = order.deliveryPhotos?.length ?? 0;
-  const clothPhotosUploaded = clothPhotoCount >= requiredPhotoCount;
+  const clothPhotosUploaded = clothPhotoCount >= 1;
   const deliveryPhotosUploaded = order.type !== "tailor_to_customer" || deliveryPhotoCount >= requiredPhotoCount;
   const sampleRequired = order.sampleProvided === true;
   const samplePhotosUploaded = !sampleRequired || Boolean(order.samplePhotos?.length);
-  const pickupChecklistComplete = pickupOtpVerified && (order.type === "tailor_to_customer" || (clothPhotosUploaded && samplePhotosUploaded));
+  const pickupChecklistComplete = pickupOtpVerified && (order.type === "tailor_to_customer" || clothPhotosUploaded);
   const needsCashCollection = order.type === "tailor_to_customer" && order.paymentMethod === "COD" && order.cashCollectionRequired === true && !order.cashCollected;
   const deliveryChecklistComplete = dropOtpVerified && !needsCashCollection && deliveryPhotosUploaded;
   const headingToPickup = order.taskStatus === "accepted";
@@ -3246,14 +3247,14 @@ function ActiveOrderScreenView({
   }
 
   async function savePhotos(kind: "cloth" | "sample" | "delivery") {
-    if (uploadingPhotos) return;
+    if (photoUploadInProgress.current) return;
     if (!(await ensureLocationShared())) return;
     const drafts = kind === "cloth" ? clothProofs : kind === "sample" ? sampleProofs : deliveryProofs;
     if (!drafts.length) {
       showDialog({ title: "Photos required", message: `Upload at least one ${kind} photo.`, icon: "images-outline" });
       return;
     }
-    if ((kind === "cloth" || kind === "delivery") && drafts.length < requiredPhotoCount) {
+    if (kind === "delivery" && drafts.length < requiredPhotoCount) {
       showDialog({ title: "More photos required", message: `Upload photo for item ${drafts.length + 1} of ${requiredPhotoCount}.`, icon: "images-outline" });
       return;
     }
@@ -3261,6 +3262,7 @@ function ActiveOrderScreenView({
       showDialog({ title: "Complete previous step", message: "Complete cloth photo upload first.", icon: "alert-circle-outline" });
       return;
     }
+    photoUploadInProgress.current = true;
     try {
       setUploadingPhotos(true);
       const photos = await uploadDeliveryMedia(drafts, token);
@@ -3276,6 +3278,7 @@ function ActiveOrderScreenView({
     } catch (error) {
       showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not save photos.", icon: "cloud-upload-outline" });
     } finally {
+      photoUploadInProgress.current = false;
       setUploadingPhotos(false);
     }
   }
@@ -3440,7 +3443,7 @@ function ActiveOrderScreenView({
         {screen === "confirmations" && !orderCompleted && order.taskStatus === "accepted" && order.type === "customer_to_tailor" && pickupOtpVerified && !pickupChecklistComplete ? (
           <Card>
             <Text style={styles.cardTitle}>Cloth photos</Text>
-            <Text style={styles.helperText}>Upload one clear pickup photo per clothing item: {Math.min(clothProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
+            <Text style={styles.helperText}>Upload at least one clear pickup photo: {Math.min(clothProofs.length, 1)}/1 ready.</Text>
             <View style={styles.docActions}>
               <Pressable style={styles.docButton} onPress={() => addProof("cloth")}>
                 <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />
@@ -3450,7 +3453,7 @@ function ActiveOrderScreenView({
             <View style={styles.mediaGrid}>
               {clothProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}
             </View>
-            {!clothPhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label={`Upload Pickup Photos (${clothProofs.length}/${requiredPhotoCount})`} loading={uploadingPhotos} disabled={clothProofs.length < requiredPhotoCount} onPress={() => savePhotos("cloth")} /> : <ChecklistRow label={`Pickup photos uploaded (${clothPhotoCount}/${requiredPhotoCount})`} complete />}
+            {!clothPhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label={`Upload Pickup Photo (${Math.min(clothProofs.length, 1)}/1)`} loading={uploadingPhotos} disabled={clothProofs.length < 1} onPress={() => savePhotos("cloth")} /> : <ChecklistRow label={`Pickup photos uploaded (${clothPhotoCount})`} complete />}
             {sampleRequired && clothPhotosUploaded ? (
               <View style={styles.sampleBlock}>
                 <Text style={styles.cardTitle}>Collect the existing reference garment</Text>
@@ -3492,8 +3495,7 @@ function ActiveOrderScreenView({
                 {!pickupOtpVerified ? <><Field label="4 digit OTP" keyboardType="number-pad" onChange={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} placeholder="Enter OTP" value={otp} /><PrimaryButton icon="shield-checkmark-outline" label="Verify OTP" loading={updating} disabled={otp.length !== 4} onPress={verifyOtp} /></> : null}
                 {order.type === "customer_to_tailor" ? (
                   <>
-                    <ChecklistRow label={`Upload Pickup Photos (${clothPhotoCount}/${requiredPhotoCount})`} complete={clothPhotosUploaded} current={pickupOtpVerified && !clothPhotosUploaded} locked={!pickupOtpVerified} />
-                    {sampleRequired ? <ChecklistRow label="Collect & photograph existing garment" complete={samplePhotosUploaded} current={clothPhotosUploaded && !samplePhotosUploaded} locked={!clothPhotosUploaded} /> : null}
+                    <ChecklistRow label={`Upload Pickup Photo (${Math.min(clothPhotoCount, 1)}/1)`} complete={clothPhotosUploaded} current={pickupOtpVerified && !clothPhotosUploaded} locked={!pickupOtpVerified} />
                   </>
                 ) : null}
                 <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Picked Up" : "Mark Collected From Tailor"} complete={false} current={pickupChecklistComplete} locked={!pickupChecklistComplete} />
