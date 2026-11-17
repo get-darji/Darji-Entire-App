@@ -4057,8 +4057,12 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   if (!entity) throw new AppError(404, "Order not found");
   const input = z.object({
     quoteAmount: z.coerce.number().finite().min(0).max(1_000_000).optional(),
-    deliveryFee: z.coerce.number().finite().min(0).max(100_000).optional()
-  }).refine((value) => Object.keys(value).length > 0, "Provide a quote or delivery charge").parse(req.body);
+    deliveryFee: z.coerce.number().finite().min(0).max(100_000).optional(),
+    platformFee: z.coerce.number().finite().min(0).max(100_000).optional(),
+    smallOrderFee: z.coerce.number().finite().min(0).max(100_000).optional(),
+    homeMeasurementFee: z.coerce.number().finite().min(0).max(100_000).optional(),
+    discount: z.coerce.number().finite().min(0).max(1_000_000).optional()
+  }).refine((value) => Object.keys(value).length > 0, "Provide at least one price component").parse(req.body);
   const value = entity.value;
   const paymentStatus = String(value.paymentStatus ?? "PENDING").toUpperCase();
   const terminalStatuses = ["COMPLETED", "CANCELLED", "DELIVERED"];
@@ -4075,10 +4079,10 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
 
   const quoteAmount = input.quoteAmount ?? Number(value.quoteAmount ?? value.subtotal ?? 0);
   const deliveryFee = input.deliveryFee ?? Number(value.deliveryFee ?? 0);
-  const platformFee = getPlatformFee(quoteAmount);
-  const smallOrderFee = getSmallOrderFee(quoteAmount);
-  const homeMeasurementFee = Number(value.homeMeasurementFee ?? 0);
-  const discount = Number(value.discountAmount ?? value.discount ?? 0);
+  const platformFee = input.platformFee ?? Number(value.platformFee ?? getPlatformFee(quoteAmount));
+  const smallOrderFee = input.smallOrderFee ?? Number(value.smallOrderFee ?? getSmallOrderFee(quoteAmount));
+  const homeMeasurementFee = input.homeMeasurementFee ?? Number(value.homeMeasurementFee ?? 0);
+  const discount = input.discount ?? Number(value.discountAmount ?? value.discount ?? 0);
   const totalAmount = Math.max(0, quoteAmount + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee - discount);
 
   if (entity.kind === "TAILORING_REQUEST") {
@@ -4087,6 +4091,8 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
     request.deliveryFee = deliveryFee;
     request.platformFee = platformFee;
     request.smallOrderFee = smallOrderFee;
+    request.homeMeasurementFee = homeMeasurementFee;
+    request.discountAmount = discount;
     request.totalAmount = totalAmount;
     await request.save();
     if (request.selectedQuoteId) {
@@ -4101,6 +4107,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   order.deliveryFee = deliveryFee;
   order.platformFee = platformFee;
   order.smallOrderFee = smallOrderFee;
+  order.discount = discount;
   order.totalAmount = totalAmount;
   await order.save();
   await PaymentModel.updateMany({ orderId: order.id, status: "PENDING", providerRef: { $exists: false } }, { $set: { amount: totalAmount } });
