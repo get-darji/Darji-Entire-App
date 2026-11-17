@@ -104,7 +104,8 @@ async function customerMeasurementVisitData(visit: any) {
 export async function listMeasurementVisitsController(req: Request, res: Response) {
   if (req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN") {
     const visits = await MeasurementVisitModel.find({}).sort({ updatedAt: -1, createdAt: -1 }).limit(200);
-    res.json({ data: visits });
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.json({ data: visits.map((visit) => ({ ...visit.toJSON(), otp: measurementVisitOtp(visit.id) })) });
     return;
   }
 
@@ -153,6 +154,7 @@ export async function getMeasurementVisitOtpController(req: Request, res: Respon
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: await customerMeasurementVisitData(visit) });
 }
 
@@ -160,6 +162,7 @@ export async function getMeasurementVisitOtpForRequestController(req: Request, r
   const visit = await MeasurementVisitModel.findOne({ requestId: String(req.params.requestId) });
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: await customerMeasurementVisitData(visit) });
 }
 

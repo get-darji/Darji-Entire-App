@@ -330,6 +330,7 @@ export type FinancialPartnerRow = {
 
 export type MeasurementVisit = {
   id: string;
+  otp?: string;
   darjiId?: string;
   requestId: string;
   customerId: string;
