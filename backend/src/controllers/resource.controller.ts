@@ -4070,7 +4070,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const terminalStatuses = ["COMPLETED", "CANCELLED", "DELIVERED"];
   const orderId = String(value.id ?? value._id);
   const payments = await PaymentModel.find({ orderId }).select("method status amount providerRef").lean();
-  if (payments.some((payment) => String(payment.status).toUpperCase() === "PENDING" && payment.providerRef)) {
+  if (input.collectedAmount === undefined && payments.some((payment) => String(payment.status).toUpperCase() === "PENDING" && payment.providerRef)) {
     throw new AppError(409, "Close or finish the active online payment link before changing pricing");
   }
 
