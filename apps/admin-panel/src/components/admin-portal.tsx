@@ -1545,6 +1545,7 @@ export function AdminPortal() {
         homeMeasurementFee: pricing.homeMeasurementFee,
         discount: pricing.discount,
         totalAmount: pricing.totalAmount,
+        payments: current.payments?.map((payment) => pricing.collectedAmount !== undefined && payment.method === "COD" && payment.status === "PAID" ? { ...payment, amount: pricing.collectedAmount } : payment),
         ...(current.request ? { request: { ...current.request, quoteAmount: pricing.quoteAmount, deliveryFee: pricing.deliveryFee, platformFee: pricing.platformFee, smallOrderFee: pricing.smallOrderFee, homeMeasurementFee: pricing.homeMeasurementFee, discountAmount: pricing.discount, totalAmount: pricing.totalAmount } } : {})
       } : current);
       toast.success("Order pricing updated");
@@ -5414,7 +5415,7 @@ function FinancialDetailDialog({
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const rows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const exceptions = details.reconciliation.exceptions;
+  const exceptions = kind === "realized_revenue" ? [] : details.reconciliation.exceptions;
 
   return (
     <>
@@ -5471,9 +5472,9 @@ function FinancialDetailDialog({
               </div>
             )}
 
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+            {kind !== "realized_revenue" ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
               <strong>Reconciliation:</strong> collected in period {formatCurrency(details.reconciliation.collectedInPeriod)} · completed-order collections recognized {formatCurrency(details.reconciliation.completedOrderCollectionsInPeriod)} · current eligible unpaid partner liability {formatCurrency(details.reconciliation.currentEligiblePendingPayouts)}.
-            </div>
+            </div> : <p className="text-sm text-[var(--muted)]">Completed orders are listed below. If an amount is missing, click Edit and enter it to include that order in net revenue.</p>}
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="relative w-full max-w-md">
@@ -5499,7 +5500,7 @@ function FinancialDetailDialog({
                   {rows.map((row: any, rowIndex: number) => kind === "gross_paid" ? (
                     <tr key={row.key}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block font-semibold">{row.orderNumber ?? row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</span></button></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
                   ) : kind === "realized_revenue" ? (
-                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block font-semibold">{row.orderNumber ?? row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.orderId}</span>{row.adjusted ? <span className="mt-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">Manually adjusted</span> : null}</button></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td><td className="px-4 py-3"><ActionButton variant="secondary" onClick={() => setEditingFinanceRow(row)}><PencilLine size={14} /> Edit</ActionButton></td></tr>
+                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block font-semibold">{row.orderNumber ?? row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.orderId}</span>{row.adjusted ? <span className="mt-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">Manually adjusted</span> : null}</button></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{row.missingCosts?.length ? "Needs amounts" : formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.missingCosts?.length ? row.missingCosts.join(", ") : row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td><td className="px-4 py-3"><ActionButton variant="secondary" onClick={() => setEditingFinanceRow(row)}><PencilLine size={14} /> Edit</ActionButton></td></tr>
                   ) : (
                     <tr key={row.id}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenPartner(row.partnerId, row.partnerType)} type="button"><span className="block font-semibold">{row.partnerName}</span><span className="block text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</span></button></td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block">{row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</span></button></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
                   ))}
@@ -5515,8 +5516,8 @@ function FinancialDetailDialog({
 
             {exceptions.length ? (
               <details className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <summary className="cursor-pointer font-semibold text-amber-950">Reconciliation exceptions ({exceptions.length})</summary>
-                <div className="mt-3 space-y-2 text-sm text-amber-950">{exceptions.map((exception, index) => <p key={`${exception.type}-${exception.orderId ?? index}`}><strong>{exception.type.replaceAll("_", " ")}:</strong> {exception.message}{exception.orderId ? ` Order ${exception.orderId}.` : ""}</p>)}</div>
+                <summary className="cursor-pointer font-semibold text-amber-950">Records to review ({exceptions.length})</summary>
+                <div className="mt-3 space-y-2 text-sm text-amber-950">{exceptions.map((exception, index) => <p key={`${exception.type}-${exception.orderId ?? index}`}>{exception.message}{exception.orderId ? ` Order ${exception.orderId}.` : ""}</p>)}</div>
               </details>
             ) : null}
           </div>
@@ -5543,10 +5544,10 @@ function RealizedFinanceEditDialog({ row, pending, onClose, onSave }: {
   useEffect(() => {
     if (!row) return;
     setValues({
-      collectedAmount: String(row.collectedAmount ?? 0),
-      stitchingCost: String(row.stitchingCost ?? 0),
-      measurementCost: String(row.measurementCost ?? 0),
-      deliveryCost: String(row.deliveryCost ?? 0),
+      collectedAmount: row.missingCosts?.includes("customer collection") ? "" : String(row.collectedAmount ?? 0),
+      stitchingCost: row.missingCosts?.includes("stitching cost") ? "" : String(row.stitchingCost ?? 0),
+      measurementCost: row.missingCosts?.includes("measurement cost") ? "" : String(row.measurementCost ?? 0),
+      deliveryCost: row.missingCosts?.includes("finalized delivery cost") ? "" : String(row.deliveryCost ?? 0),
       packagingCost: String(row.operationalAllowance ?? 0)
     });
   }, [row]);
@@ -11883,7 +11884,7 @@ function OrderPricingDialog({
   order: Order | null;
   pending: boolean;
   onClose: () => void;
-  onSave: (values: { quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number }) => void;
+  onSave: (values: { quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; collectedAmount?: number; correctionReason?: string }) => void;
 }) {
   const [quoteAmount, setQuoteAmount] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
@@ -11891,10 +11892,14 @@ function OrderPricingDialog({
   const [smallOrderFee, setSmallOrderFee] = useState("");
   const [homeMeasurementFee, setHomeMeasurementFee] = useState("");
   const [discount, setDiscount] = useState("");
+  const [collectedAmount, setCollectedAmount] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
   const isTailoring = Boolean(order?.request);
   const alreadyPaid = String(order?.paymentStatus ?? "").toUpperCase() === "PAID";
-  const completed = ["DELIVERED", "COMPLETED", "CANCELLED"].includes(String(order?.status ?? "").toUpperCase());
+  const completed = ["DELIVERED", "COMPLETED"].includes(String(order?.status ?? "").toUpperCase());
   const cancelled = String(order?.status ?? "").toUpperCase() === "CANCELLED";
+  const refunded = String(order?.paymentStatus ?? "").toUpperCase() === "REFUNDED";
+  const canCorrectCash = completed && alreadyPaid && String(order?.paymentMethod ?? "").toUpperCase() === "COD";
 
   useEffect(() => {
     setQuoteAmount(String(order?.request?.quoteAmount ?? order?.subtotal ?? ""));
@@ -11903,6 +11908,9 @@ function OrderPricingDialog({
     setSmallOrderFee(String(order?.smallOrderFee ?? order?.request?.smallOrderFee ?? "0"));
     setHomeMeasurementFee(String(order?.homeMeasurementFee ?? order?.request?.homeMeasurementFee ?? "0"));
     setDiscount(String(order?.discount ?? order?.request?.discountAmount ?? "0"));
+    const cashPayment = order?.payments?.find((payment) => payment.method === "COD" && payment.status === "PAID");
+    setCollectedAmount(String(cashPayment?.amount ?? order?.totalAmount ?? ""));
+    setCorrectionReason("");
   }, [order]);
 
   const fields = [quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount];
@@ -11910,13 +11918,15 @@ function OrderPricingDialog({
   const recalculatedTotal = Math.max(0, Number(quoteAmount) + Number(deliveryFee) + Number(platformFee) + Number(smallOrderFee) + Number(homeMeasurementFee) - Number(discount || 0));
   const settled = alreadyPaid || completed;
   const settledTotal = Number(order?.totalAmount ?? 0);
-  const matchesSettledTotal = !cancelled && (!settled || (settledTotal > 0 && Math.abs(recalculatedTotal - settledTotal) < 0.01));
+  const canSave = !cancelled && !refunded && (canCorrectCash
+    ? collectedAmount.trim() !== "" && Number.isFinite(Number(collectedAmount)) && Number(collectedAmount) >= 0 && correctionReason.trim().length >= 3
+    : !settled || (settledTotal > 0 && Math.abs(recalculatedTotal - settledTotal) < 0.01));
 
   return (
     <Dialog.Root onOpenChange={(next) => { if (!next) onClose(); }} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-[var(--panel-border)] bg-[#fffdfa] p-6 shadow-2xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] max-h-[92vh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-[var(--panel-border)] bg-[#fffdfa] p-6 shadow-2xl">
           <Dialog.Title className="text-xl font-bold text-[var(--deep)]">Edit order pricing</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Edit each customer price component. The server recalculates the payable total from these values.</Dialog.Description>
           {order ? <div className="mt-5 space-y-4">
@@ -11933,12 +11943,15 @@ function OrderPricingDialog({
               <p className="mt-3 text-xs text-[var(--muted)]">Total = quote/subtotal + delivery + platform + small-order + measurement − discount.</p>
             </div>
             {cancelled ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Pricing cannot be changed for a cancelled order.</p> : null}
-            {!cancelled && settled ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">This order is settled. You can correct the price breakdown while keeping the total at {formatCurrency(settledTotal)}. Payment records stay unchanged; a different total needs a separate collection or refund.</p> : null}
-            {settled && valid && !matchesSettledTotal ? <p className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-700">Adjust the components so the recalculated total matches the recorded settled amount.</p> : null}
+            {canCorrectCash ? <>
+              <Field label="Cash actually collected (₹)"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" min="0" step="0.01" type="number" value={collectedAmount} onChange={(event) => setCollectedAmount(event.target.value)} /></Field>
+              <Field label="Reason for correction"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" maxLength={500} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} /></Field>
+            </> : !cancelled && settled ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Keep the revised total at {formatCurrency(settledTotal)} for this settled payment.</p> : null}
+            {refunded ? <p className="text-sm text-amber-800">Pricing is locked for refunded orders.</p> : null}
           </div> : null}
           <div className="mt-6 flex justify-end gap-2">
             <ActionButton disabled={pending} variant="secondary" onClick={onClose}>Cancel</ActionButton>
-            <ActionButton disabled={!order || !valid || !matchesSettledTotal || pending} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
+            <ActionButton disabled={!order || !valid || !canSave || pending} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount), ...(canCorrectCash ? { collectedAmount: Number(collectedAmount), correctionReason: correctionReason.trim() } : {}) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

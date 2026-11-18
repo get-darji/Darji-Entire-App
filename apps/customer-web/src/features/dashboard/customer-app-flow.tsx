@@ -3796,6 +3796,36 @@ export function CustomerDashboard() {
   return <CustomerDialogProvider><CustomerDashboardContent /></CustomerDialogProvider>;
 }
 
+function GuestServices() {
+  const [signIn, setSignIn] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("signin") === "1"
+  );
+  if (signIn) return <AuthPanel />;
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-5xl px-6 py-10 text-[#08111f]">
+      <header className="flex items-center justify-between gap-4">
+        <Link href="/" aria-label="Darji home"><img src="/darji-loader-transparent.png" alt="Darji" className="h-12 w-auto" /></Link>
+        <Button onClick={() => setSignIn(true)}>Sign in</Button>
+      </header>
+      <section className="mt-12">
+        <h1 className="text-3xl font-black sm:text-4xl">Tailoring services at your doorstep</h1>
+        <p className="mt-3 max-w-xl text-slate-600">Choose a service, request a quote from a tailor, and book pickup and delivery. Your quote shows the price before you confirm.</p>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {SERVICE_CATEGORIES.map(({ label }) => (
+            <article key={label} className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h2 className="font-bold">{label}</h2>
+              <button type="button" className="mt-3 text-sm font-semibold text-orange-800 underline" onClick={() => setSignIn(true)}>Request a quote</button>
+            </article>
+          ))}
+        </div>
+      </section>
+      <footer className="mt-10 flex flex-wrap gap-5 text-sm text-slate-700">
+        <Link href="/about">About Darji</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+      </footer>
+    </main>
+  );
+}
+
 function CustomerDashboardContent() {
   const language = useCustomerPreferences((state) => state.language);
   const prompt = useCustomerDialog();
@@ -3933,7 +3963,7 @@ function CustomerDashboardContent() {
   }
 
   if (!mounted) return <LoadingScreen />;
-  if (!accessToken) return <AuthPanel />;
+  if (!accessToken) return <GuestServices />;
 
   const sharedError = requests.error ?? coupons.error ?? wallet.error ?? notifications.error ?? addresses.error;
   const initialLoading = syncing && !requests.data && !coupons.data && !wallet.data && !notifications.data && !addresses.data && !sharedError;

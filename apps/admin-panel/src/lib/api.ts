@@ -491,9 +491,9 @@ export async function updateAdminOrderQuote(payload: { orderId: string; quoteId:
   return unwrap<TailorQuote>(api.patch(`/admin/orders/${orderId}/quotes/${quoteId}`, body));
 }
 
-export async function updateAdminOrderPricing(payload: { orderId: string; quoteAmount?: number; deliveryFee?: number; platformFee?: number; smallOrderFee?: number; homeMeasurementFee?: number; discount?: number }) {
+export async function updateAdminOrderPricing(payload: { orderId: string; quoteAmount?: number; deliveryFee?: number; platformFee?: number; smallOrderFee?: number; homeMeasurementFee?: number; discount?: number; collectedAmount?: number; correctionReason?: string }) {
   const { orderId, ...body } = payload;
-  return unwrap<{ id: string; quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; totalAmount: number }>(api.patch(`/admin/orders/${orderId}/pricing`, body));
+  return unwrap<{ id: string; quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; totalAmount: number; collectedAmount?: number }>(api.patch(`/admin/orders/${orderId}/pricing`, body));
 }
 
 export async function manuallyCompleteTailoringRequest(payload: { requestId: string; collectedAmount: number }) {

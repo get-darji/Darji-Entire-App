@@ -4061,12 +4061,15 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
     platformFee: z.coerce.number().finite().min(0).max(100_000).optional(),
     smallOrderFee: z.coerce.number().finite().min(0).max(100_000).optional(),
     homeMeasurementFee: z.coerce.number().finite().min(0).max(100_000).optional(),
-    discount: z.coerce.number().finite().min(0).max(1_000_000).optional()
+    discount: z.coerce.number().finite().min(0).max(1_000_000).optional(),
+    collectedAmount: z.number().finite().min(0).max(1_000_000).optional(),
+    correctionReason: z.string().trim().min(3).max(500).optional()
   }).refine((value) => Object.keys(value).length > 0, "Provide at least one price component").parse(req.body);
   const value = entity.value;
   const paymentStatus = String(value.paymentStatus ?? "PENDING").toUpperCase();
   const terminalStatuses = ["COMPLETED", "CANCELLED", "DELIVERED"];
-  const payments = await PaymentModel.find({ orderId: String(value.id ?? value._id) }).select("status amount providerRef").lean();
+  const orderId = String(value.id ?? value._id);
+  const payments = await PaymentModel.find({ orderId }).select("method status amount providerRef").lean();
   if (payments.some((payment) => String(payment.status).toUpperCase() === "PENDING" && payment.providerRef)) {
     throw new AppError(409, "Close or finish the active online payment link before changing pricing");
   }
@@ -4077,7 +4080,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const smallOrderFee = input.smallOrderFee ?? Number(value.smallOrderFee ?? getSmallOrderFee(quoteAmount));
   const homeMeasurementFee = input.homeMeasurementFee ?? Number(value.homeMeasurementFee ?? 0);
   const discount = input.discount ?? Number(value.discountAmount ?? value.discount ?? 0);
-  const totalAmount = Math.max(0, quoteAmount + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee - discount);
+  const totalAmount = Math.round(Math.max(0, quoteAmount + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee - discount) * 100) / 100;
   const isTerminal = terminalStatuses.includes(String(value.orderStatus ?? "").toUpperCase())
     || terminalStatuses.includes(String(value.status ?? "").toUpperCase());
   if ([String(value.orderStatus ?? ""), String(value.status ?? "")].some((status) => status.toUpperCase() === "CANCELLED")) {
@@ -4097,6 +4100,48 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const settledAmount = paidAmount > 0 ? paidAmount : confirmedCodAmount;
   if (["REFUNDED"].includes(paymentStatus)) {
     throw new AppError(409, "Pricing cannot be changed for a refunded order");
+  }
+  if (input.collectedAmount !== undefined) {
+    const cashPayments = payments.filter((payment) => payment.method === "COD" && payment.status === "PAID" && !payment.providerRef);
+    if (!isTerminal || value.paymentMethod !== "COD" || paymentStatus !== "PAID" || !cashPayments.length ||
+        payments.some((payment) => payment.status === "REFUNDED" || (payment.status === "PAID" && (payment.method !== "COD" || payment.providerRef)))) {
+      throw new AppError(409, "Cash corrections are available for completed, paid cash orders");
+    }
+    if (!input.correctionReason) throw new AppError(400, "Enter a reason for correcting the cash collected");
+    const collectedAmount = Math.round(input.collectedAmount * 100) / 100;
+    const correctedAt = new Date();
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const model = entity.kind === "TAILORING_REQUEST" ? TailoringRequestModel : OrderModel;
+        const pricing = entity.kind === "TAILORING_REQUEST"
+          ? { quoteAmount, homeMeasurementFee, discountAmount: discount }
+          : { subtotal: quoteAmount, discount };
+        const updated = await model.collection.updateOne(
+          { _id: entity.document._id, updatedAt: entity.document.updatedAt },
+          { $set: { ...pricing, deliveryFee, platformFee, smallOrderFee, totalAmount, updatedAt: correctedAt } },
+          { session }
+        );
+        if (!updated.matchedCount) throw new AppError(409, "This order changed. Refresh it and try again.");
+        const correctedPayments = await PaymentModel.updateMany({ _id: { $in: cashPayments.map((payment) => payment._id) }, status: "PAID" },
+          { $set: { amount: collectedAmount, cashCorrectedAt: correctedAt } }, { session });
+        if (correctedPayments.matchedCount !== cashPayments.length) throw new AppError(409, "The payments changed. Refresh the order and try again.");
+        await TransactionModel.updateMany({ orderId, category: "COD", type: "CREDIT" },
+          { $set: { amount: collectedAmount } }, { session });
+        await DeliveryRequestModel.updateMany({ orderId }, { $set: { totalAmount } }, { session });
+        await RealizedFinanceAdjustmentModel.updateOne({ orderId }, { $set: { collectedAmount } }, { session });
+        await AdminAuditLogModel.create([{
+          actorId: req.user!.id, actorRole: req.user!.role, category: "FINANCE",
+          action: "Corrected cash collected", method: req.method, path: req.path, statusCode: 200,
+          entityType: "orders", entityId: orderId, summary: input.correctionReason,
+          metadata: { previousAmounts: cashPayments.map((payment) => payment.amount), collectedAmount, totalAmount }
+        }], { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+    emitToAdmins("order:updated", { orderId });
+    return res.json({ data: { id: orderId, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount, collectedAmount } });
   }
   if (isTerminal && settledAmount <= 0) {
     throw new AppError(409, "A completed order can only be repriced after its collected amount is reconciled");

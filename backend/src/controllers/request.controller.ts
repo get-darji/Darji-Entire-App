@@ -2643,7 +2643,7 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
     },
     { returnDocument: "after" }
   );
-  await PaymentModel.updateMany({ orderId: request.id, method: "COD" }, { $set: { status: "PAID", paidAt: now } });
+  await PaymentModel.updateMany({ orderId: request.id, method: "COD", status: "PENDING", cashCorrectedAt: { $exists: false } }, { $set: { status: "PAID", paidAt: now } });
   const codTransaction = await TransactionModel.findOne({ orderId: request.id, category: "COD" }).lean();
   if (!codTransaction) {
     await TransactionModel.create({

@@ -271,7 +271,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, financeAdjustments, otpMetric, totalCustomers] = await Promise.all([
     OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount totalAmount paymentMethod homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
-    PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
+    PaymentModel.find().select("_id orderId method amount status providerRef cashCorrectedAt paidAt refundedAt createdAt updatedAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("_id userId userType orderId amount createdAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT" }).select("_id userId userType orderId category amount createdAt").lean(),
     PaymentHistoryModel.find({ status: "PAID" }).select("_id userId userType amount paidAt status").lean(),
@@ -302,7 +302,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   });
   tailoringRequests.forEach((request: any) => {
     if (completionByOrder.has(String(request._id))) return;
-    const completedEvent = [...(request.timelineEvents ?? [])].reverse().find((event: any) => ["DELIVERED", "COMPLETED"].includes(String(event.status).toUpperCase()));
+    const completedEvent = [...(request.timelineEvents ?? [])].reverse().find((event: any) => ["DELIVERED", "COMPLETED", "ORDER_DELIVERED"].includes(String(event.status).toUpperCase()));
     if (completedEvent?.timestamp) completionByOrder.set(String(request._id), validDate(completedEvent.timestamp, new Date(0)));
   });
 
@@ -341,7 +341,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       id,
       source: "TAILORING_REQUEST",
       customerId: String(request.customerId),
-      orderNumber: String(request._id),
+      orderNumber: `REQ-${id.slice(0, 8).toUpperCase()}`,
       status: String(request.orderStatus ?? request.status ?? "UNKNOWN"),
       tailorId: request.assignedTailorId
         ? String(request.assignedTailorId)
@@ -395,7 +395,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
         const request: any = tailoringRequestsById.get(String(payment.orderId));
         const confirmedCodCollection = String(payment.method ?? "").toUpperCase() === "COD"
           && confirmedCodCollectionOrderIds.has(String(payment.orderId));
-        return confirmedCodCollection && request?.totalAmount != null
+        return confirmedCodCollection && !payment.cashCorrectedAt && request?.totalAmount != null
           ? Number(request.totalAmount)
           : Number(payment.amount ?? 0);
       })(),
@@ -572,14 +572,13 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const realizedOrderRows: Array<{
     orderId: string; orderNumber?: string; completionDate: string; collectedAmount: number; stitchingCost: number;
     measurementCost: number; deliveryCost: number; operationalAllowance: number; partnerCost: number; realizedRevenue: number; marginPercentage: number | null;
-    adjusted?: boolean; adjustmentUpdatedAt?: string;
+    adjusted?: boolean; adjustmentUpdatedAt?: string; missingCosts?: string[];
   }> = [];
   normalizedOrders.filter((order) => order.category === "completed" && order.completedAt).forEach((order) => {
     const rows = obligationsByOrder.get(order.id) ?? [];
     const stitchingRows = rows.filter((row) => row.category === "STITCHING");
     const measurementRows = rows.filter((row) => row.category === "MEASUREMENT");
     const deliveryRows = rows.filter((row) => row.category === "DELIVERY");
-    const request: any = tailoringRequestById.get(order.id);
     // A booked visit that was never submitted did not create a measurement payout.
     // Only completed visits need a realized measurement-cost row before inclusion.
     const measurementCostIncurred = measurementVisits.some((visit: any) =>
@@ -591,15 +590,12 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     if (!stitchingRows.length) missing.push("stitching cost");
     if (measurementCostIncurred && !measurementRows.length) missing.push("measurement cost");
     if (!activeTasks.length || deliveryRows.length !== activeTasks.length) missing.push("finalized delivery cost");
-    if (missing.length && !financeAdjustmentByOrderId.has(order.id)) {
-      financeExceptions.push({ type: "INCOMPLETE_ORDER_FINANCE", orderId: order.id, message: `Excluded from realized revenue: missing ${missing.join(", ")}.` });
-      return;
-    }
+    const adjustment: any = financeAdjustmentByOrderId.get(order.id);
+    const missingCosts = adjustment ? [] : missing;
     rows.filter((row) => !row.creditId).forEach((row) => financeExceptions.push({
       type: "MISSING_WALLET_CREDIT", orderId: order.id, sourceId: row.sourceId,
       message: `${row.category.toLowerCase()} liability is finalized but has no matching wallet earning credit.`
     }));
-    const adjustment: any = financeAdjustmentByOrderId.get(order.id);
     const grossPaid = roundMoney(adjustment?.collectedAmount ?? paymentCollections.allTimeNetByOrder.get(order.id) ?? 0);
     const stitchingCost = roundMoney(adjustment?.stitchingCost ?? stitchingRows.reduce((sum, row) => sum + row.amount, 0));
     const measurementCost = roundMoney(adjustment?.measurementCost ?? measurementRows.reduce((sum, row) => sum + row.amount, 0));
@@ -607,7 +603,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     const packagingCost = roundMoney(adjustment?.packagingCost ?? OPERATIONAL_ALLOWANCE_PER_ORDER);
     const tailorCost = roundMoney(stitchingCost + measurementCost);
     const realizedRevenue = roundMoney(grossPaid - tailorCost - deliveryCost - packagingCost);
-    realizedRecords.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost, packagingCost });
+    if (!missingCosts.length) {
+      realizedRecords.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost, packagingCost });
+    }
     realizedOrderRows.push({
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -621,6 +619,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       realizedRevenue,
       marginPercentage: grossPaid ? roundMoney((realizedRevenue / grossPaid) * 100) : null,
       adjusted: Boolean(adjustment),
+      missingCosts,
       adjustmentUpdatedAt: adjustment?.updatedAt ? new Date(adjustment.updatedAt).toISOString() : undefined
     });
   });

@@ -404,6 +404,7 @@ const paymentSchema = new Schema(
     status: { type: String, enum: paymentStatuses, default: "PENDING", index: true },
     amount: { type: Number, required: true },
     providerRef: String,
+    cashCorrectedAt: Date,
     paidAt: Date,
     refundedAt: Date
   },
