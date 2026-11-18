@@ -183,6 +183,7 @@ import {
   verifyTailoringCheckoutController,
   updateTailoringWorkStatusController,
   updateTailoringMeasurementBypassController,
+  manuallyCompleteTailoringRequestController,
   uploadTailoringMedia,
   uploadTailoringAuditMediaController,
   deleteTailoringAuditMediaController,
@@ -267,6 +268,7 @@ router.post("/tailoring-requests/:id/quotes", requireAuth, requireRole("TAILOR",
 router.delete("/tailoring-requests/:id/quotes/:quoteId", requireAuth, requireRole("TAILOR"), deleteOwnTailorQuoteController);
 router.post("/tailoring-requests/:id/quotes/:quoteId/select", requireAuth, requireRole("CUSTOMER", "ADMIN"), selectTailorQuoteController);
 router.patch("/admin/tailoring-requests/:id/measurement-bypass", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateTailoringMeasurementBypassController);
+router.post("/admin/tailoring-requests/:id/manual-complete", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), manuallyCompleteTailoringRequestController);
 
 router.get("/measurement-visits", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), listMeasurementVisitsController);
 router.get("/measurement-visits/:id/otp", requireAuth, requireRole("CUSTOMER", "ADMIN", "SUPER_ADMIN"), getMeasurementVisitOtpController);

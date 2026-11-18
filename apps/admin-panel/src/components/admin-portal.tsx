@@ -217,6 +217,7 @@ import {
   getAdminOrderOtps,
   updateAdminOrderQuote,
   updateAdminOrderPricing,
+  manuallyCompleteTailoringRequest,
   updateRealizedFinanceAdjustment,
   getAdminAssignmentCandidates,
   reportAdminOrderIssue,
@@ -1251,6 +1252,7 @@ export function AdminPortal() {
     mutationFn: async ({ order, status }: { order: Order; status: string }) => {
       if (!order.request) return updateOrderStatus({ orderId: order.id, status });
       if (status === "CANCELLED") return cancelTailoringRequest(order.request.id ?? order.id);
+      if (status === "DELIVERED") return manuallyCompleteTailoringRequest({ requestId: order.request.id ?? order.id, collectedAmount: Number(order.totalAmount ?? 0) });
       if (["CUTTING", "STITCHING_STARTED", "FINISHING"].includes(status)) {
         return updateTailoringWorkStatus(order.request.id ?? order.id, "WORKING");
       }
@@ -3992,6 +3994,7 @@ export function AdminPortal() {
       />
       <OrderDetailDialog
         me={me}
+        measurementVisits={measurementVisitsQuery.data ?? []}
         notes={orderDetail ? orderNotes[orderDetail.id] ?? [] : []}
         onAssign={() => orderDetail && openOrderAssignment(orderDetail)}
         onEditPricing={() => orderDetail && setOrderPricingTarget(orderDetail)}
@@ -4003,7 +4006,11 @@ export function AdminPortal() {
           if (!orderDetail) return;
           orderMetadataMutation.mutate({ orderId: orderDetail.id, priority });
         }}
-        onStatusChange={(status) => orderDetail && statusMutation.mutate({ order: orderDetail, status })}
+        onStatusChange={(status) => {
+          if (!orderDetail) return;
+          if (status === "DELIVERED" && orderDetail.request && !window.confirm(`Reconcile ${getOrderDisplayNumber(orderDetail)} as delivered by Darji Delivery and record the confirmed ₹${Number(orderDetail.totalAmount ?? 0).toFixed(0)} COD collection? This adds an admin audit entry and a completed delivery task without fabricating OTP verification or photos.`)) return;
+          statusMutation.mutate({ order: orderDetail, status });
+        }}
         open={Boolean(orderDetail)}
         order={orderDetail}
         deliveryRequests={deliveryRequests}
@@ -11216,6 +11223,7 @@ function CreateOrderDialog({
 
 function OrderDetailDialog({
   me,
+  measurementVisits,
   notes,
   onAssign,
   onEditPricing,
@@ -11240,6 +11248,7 @@ function OrderDetailDialog({
   setOpen
 }: {
   me: MeResponse;
+  measurementVisits: MeasurementVisit[];
   notes: AdminOrderNote[];
   onAssign: () => void;
   onEditPricing: () => void;
@@ -11296,6 +11305,7 @@ function OrderDetailDialog({
   }, [focusSection, open, order?.id]);
 
   const linkedDeliveryRequests = order ? deliveryRequests.filter((request) => request.orderId === order.id) : [];
+  const linkedMeasurementVisit = order?.request?.id ? measurementVisits.find((visit) => visit.requestId === order.request.id) : undefined;
   const trackingEvents = order ? buildOrderTrackingEvents(order, linkedDeliveryRequests) : [];
   const pricingDetails = order ? buildOrderPricingDetails(order) : null;
   const quotesQuery = useQuery({
@@ -11351,7 +11361,7 @@ function OrderDetailDialog({
                 <Panel className="rounded-2xl p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div><h4 className="text-sm font-bold text-[var(--deep)]">Order OTPs by stage</h4><p className="mt-1 text-xs text-[var(--muted)]">Generated handoff codes appear beside their stage. Stages without a delivery task yet stay pending.</p></div>
-                    <Badge tone="slate">{orderOtpsQuery.data?.filter((entry) => Boolean(entry.otp)).length ?? 0} codes</Badge>
+                    <Badge tone="slate">{(orderOtpsQuery.data?.filter((entry) => Boolean(entry.otp)).length ?? 0) + (linkedMeasurementVisit?.otp ? 1 : 0)} codes</Badge>
                   </div>
                   {orderOtpsQuery.isLoading ? <div className="mt-3"><LoadingState label="Loading order OTPs..." /></div> : null}
                   {orderOtpsQuery.isError ? <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{extractError(orderOtpsQuery.error)}</p> : null}
@@ -11365,7 +11375,7 @@ function OrderDetailDialog({
                     const taskExists = orderOtpsQuery.data?.some((candidate) => candidate.type === stage.type) ?? false;
                     const pendingLabel = taskExists ? "Task exists · stage OTP not returned by backend" : "Pending · task not created yet";
                     return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2" key={`${stage.type}-${stage.stage}`}><div><p className="text-xs font-bold">{stage.label}</p><p className="mt-1 text-[11px] text-[var(--muted)]">{entry ? `${formatStatus(entry.taskStatus)} · ${entry.verified ? "Verified" : "Not verified"}` : pendingLabel}</p></div><span className={cn("shrink-0 rounded-lg px-3 py-1 font-mono text-lg font-bold tracking-[0.2em]", entry?.otp ? "bg-orange-50 text-orange-800" : "bg-amber-50 text-amber-800")}>{entry?.otp ?? "Pending"}</span></div>;
-                  })}</div> : null}
+                  })}<div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2"><div><p className="text-xs font-bold">Measurement visit · Customer gives code to measurement tailor</p><p className="mt-1 text-[11px] text-[var(--muted)]">{linkedMeasurementVisit ? `${formatStatus(linkedMeasurementVisit.status)} · ${linkedMeasurementVisit.status === "SUBMITTED" ? "Completed" : "Not verified"}` : order.request?.homeMeasurementBooked || order.request?.items?.some((item: { homeMeasurementBooked?: boolean }) => item.homeMeasurementBooked) ? "Visit not available yet" : "Not eligible for this order"}</p></div><span className={cn("shrink-0 rounded-lg px-3 py-1 font-mono text-lg font-bold tracking-[0.2em]", linkedMeasurementVisit?.otp ? "bg-orange-50 text-orange-800" : "bg-amber-50 text-amber-800")}>{linkedMeasurementVisit?.otp ?? (order.request?.homeMeasurementBooked || order.request?.items?.some((item: { homeMeasurementBooked?: boolean }) => item.homeMeasurementBooked) ? "Not available" : "Not eligible")}</span></div></div> : null}
                 </Panel>
                 <div className="grid gap-4 lg:grid-cols-2" ref={overviewRef}>
                   <Panel className="rounded-2xl p-4">
@@ -11530,7 +11540,7 @@ function OrderDetailDialog({
                     <div className="mt-auto grid gap-2">
                       <ActionButton className="justify-start" variant="secondary" onClick={onAssign}><UserRoundPlus size={15} />Manage assignments</ActionButton>
                       <select className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
-                        {[order.status, ...allowedOrderStatusTransitions(order.status)].map((status) => (
+                        {[order.status, ...allowedOrderStatusTransitions(order.status), ...(order.request && order.status !== "DELIVERED" ? ["DELIVERED"] : [])].map((status) => (
                           <option key={status} value={status}>
                             {formatStatus(status)}
                           </option>
@@ -12089,7 +12099,7 @@ function TailoringRequestDialog({
                   <InspectGrid items={[{ label: "Measurement method", value: requiresMeasurementVisit ? "Home measurement visit" : "Customer-provided measurement" }, { label: "Preferred slot", value: activeRequest.preferredMeasurementSlot ?? "Not applicable" }, { label: "Measurement fee", value: formatCurrency(activeRequest.homeMeasurementFee ?? 0) }, { label: "Measurement notes", value: activeRequest.measurementNotes ?? "No notes" }, { label: "Tailoring bypass", value: activeRequest.allowTailoringWithoutMeasurementVisit ? "Allowed by admin" : "Not allowed" }]} />
                   {requiresMeasurementVisit && activeRequest.workStatus === "ACCEPTED" && !measurementVisitSubmitted ? <Panel className={activeRequest.allowTailoringWithoutMeasurementVisit ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}><div className="flex flex-wrap items-center justify-between gap-4"><div><h4 className="font-black">Allow tailoring without measurement visit</h4><p className="mt-1 max-w-2xl text-sm text-slate-600">Use this only when operations have confirmed that stitching can safely start without a submitted home-visit measurement.</p>{activeRequest.measurementBypassReason ? <p className="mt-2 text-xs font-semibold text-slate-500">Reason: {activeRequest.measurementBypassReason}</p> : null}</div><ActionButton variant={activeRequest.allowTailoringWithoutMeasurementVisit ? "secondary" : undefined} disabled={measurementBypassMutation.isPending} onClick={() => { const next = !activeRequest.allowTailoringWithoutMeasurementVisit; if (window.confirm(next ? "Allow this tailor to start without submitted visit measurements?" : "Restore the submitted-measurement requirement?")) measurementBypassMutation.mutate(next); }}>{activeRequest.allowTailoringWithoutMeasurementVisit ? "Revoke bypass" : "Allow tailoring without measurement visit"}</ActionButton></div></Panel> : null}
                   {activeRequest.measurement ? <Panel><h4 className="font-bold">Submitted measurement</h4><pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs text-slate-600">{JSON.stringify(activeRequest.measurement, null, 2)}</pre></Panel> : null}
-                  {requestVisits.map((visit) => <Panel key={visit.id}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{visit.darjiId ?? `Visit ${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="mt-1 text-sm text-slate-500">{visit.customerName} · {formatDate(visit.scheduledAt, true)}</p></div><div className="flex items-center gap-3"><StatusBadge value={visit.status} />{visit.status !== "SUBMITTED" ? <div className="rounded-xl bg-amber-100 px-4 py-2 text-center"><p className="text-[10px] font-black uppercase tracking-wide text-amber-900">Measurement OTP</p><p className="font-mono text-xl font-black tracking-widest text-amber-950">{visit.otp ?? "Unavailable"}</p></div> : null}</div></div></Panel>)}
+                  {requestVisits.map((visit) => <Panel key={visit.id}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{visit.darjiId ?? `Visit ${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="mt-1 text-sm text-slate-500">{visit.customerName} · {formatDate(visit.scheduledAt, true)}</p></div><StatusBadge value={visit.status} /></div></Panel>)}
                   {requiresMeasurementVisit && !requestVisits.length ? <EmptyState message="The measurement visit has not been created or is not available in the current data set." /> : null}
                 </div> : null}
                 {tab === "logistics" ? <div className="space-y-4">{requestDeliveries.map((task) => <button className="block w-full rounded-2xl border border-slate-200 bg-white p-5 text-left transition hover:border-orange-300" key={task.id} onClick={() => onOpenDelivery(task)} type="button"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black">{task.taskId}</p><p className="mt-1 text-sm text-slate-500">{formatStatus(task.type)} · {formatStatus(task.serviceLevel ?? "STANDARD")}</p></div><StatusBadge value={task.taskStatus} /></div><div className="mt-4 grid gap-3 text-sm md:grid-cols-3"><span>{task.pickupAddress}</span><span>→ {task.dropAddress}</span><span>{task.batchId ? `Batch ${task.batchId.slice(0, 8).toUpperCase()}` : "Unbatched / instant"}</span></div></button>)}{!requestDeliveries.length ? <EmptyState message="Pickup and delivery tasks will appear after the order reaches the relevant workflow stage." /> : null}</div> : null}

@@ -2472,6 +2472,149 @@ export async function updateTailoringMeasurementBypassController(req: Request, r
   res.json({ data: await hydrateTailoringRequest(updatedRequest) });
 }
 
+export async function manuallyCompleteTailoringRequestController(req: Request, res: Response) {
+  const { id } = req.params;
+  const input = z.object({
+    confirmDelivered: z.literal(true),
+    confirmCodCollected: z.literal(true),
+    collectedAmount: z.number().finite().nonnegative()
+  }).parse(req.body);
+  const request = await TailoringRequestModel.findById(String(id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (String(request.orderStatus).toLowerCase() === "completed") {
+    res.json({ data: await hydrateTailoringRequest(request) });
+    return;
+  }
+  if (request.status !== "TAILOR_SELECTED" || request.paymentMethod !== "COD") {
+    throw new AppError(409, "Manual delivery reconciliation is only available for confirmed COD tailoring orders");
+  }
+  if (Math.abs(input.collectedAmount - Number(request.totalAmount ?? 0)) > 0.01) {
+    throw new AppError(409, `The confirmed COD amount must match the order total of ₹${Number(request.totalAmount ?? 0).toFixed(0)}`);
+  }
+
+  const [pickupTask, acceptedQuote] = await Promise.all([
+    DeliveryRequestModel.findOne({ orderId: request.id, type: "customer_to_tailor" }),
+    TailorQuoteModel.findOne({ requestId: request.id, status: "ACCEPTED" })
+  ]);
+  if (!pickupTask?.assignedDeliveryPartnerId || !acceptedQuote) {
+    throw new AppError(409, "The accepted tailor and assigned pickup delivery partner are required before reconciliation");
+  }
+  if (!pickupTask.pickupOtpVerifiedAt || !(pickupTask.clothPhotos?.length)) {
+    throw new AppError(409, "Verified pickup OTP and at least one pickup photo are required before reconciliation");
+  }
+  const deliveryPartner = await DeliveryPartnerModel.findById(pickupTask.assignedDeliveryPartnerId);
+  if (!deliveryPartner) throw new AppError(409, "The assigned delivery partner is no longer available");
+
+  const now = new Date();
+  const actor = actorTimelineFields(req);
+  const reconciliationNote = "Admin reconciliation: business owner confirmed delivery to the customer by Darji Delivery and collection of the COD amount.";
+  const completedPickup = await DeliveryRequestModel.findOneAndUpdate(
+    { _id: pickupTask.id, taskStatus: { $in: ["accepted", "picked_up", "delivered"] } },
+    {
+      $set: { taskStatus: "delivered", pickedUpAt: pickupTask.pickedUpAt ?? now, deliveredAt: pickupTask.deliveredAt ?? now },
+      $push: { timelineEvents: { $each: [
+        ...(pickupTask.taskStatus === "accepted" ? [{ status: "PICKED_UP", description: `Admin reconciliation: pickup completed by Darji Delivery. ${reconciliationNote}`, timestamp: now, ...actor }] : []),
+        ...(pickupTask.taskStatus !== "delivered" ? [{ status: "DELIVERED", description: `Admin reconciliation: clothes delivered to tailor. ${reconciliationNote}`, timestamp: now, ...actor }] : [])
+      ] } }
+    },
+    { returnDocument: "after" }
+  );
+  if (!completedPickup) throw new AppError(409, "The pickup task changed while reconciliation was in progress");
+
+  const tailor = await TailorModel.findById(acceptedQuote.tailorId);
+  if (!tailor) throw new AppError(409, "The accepted tailor profile is unavailable");
+  const estimatedEarnings = await deliveryTaskEstimatedEarnings(request, "tailor_to_customer");
+  const finalTaskTimeline = [
+    { status: "TASK_CREATED", description: `Admin reconciliation: final delivery by Darji Delivery. ${reconciliationNote}`, timestamp: now, ...actor },
+    { status: "ACCEPTED", description: "Final delivery completed by the assigned delivery partner.", timestamp: now, ...actor },
+    { status: "PICKED_UP", description: "Tailor confirmed the finished clothes were handed to Darji Delivery.", timestamp: now, ...actor },
+    { status: "COD_COLLECTED", description: `COD ₹${Number(request.totalAmount ?? 0).toFixed(0)} collected and confirmed by the business owner.`, timestamp: now, ...actor },
+    { status: "DELIVERED", description: "Customer delivery manually reconciled by an administrator from the business owner's confirmation.", timestamp: now, ...actor }
+  ];
+  const finalTask = await DeliveryRequestModel.findOneAndUpdate(
+    { orderId: request.id, type: "tailor_to_customer" },
+    {
+      $set: {
+        tailorId: acceptedQuote.tailorId,
+        customerId: request.customerId,
+        deliveryType: DeliveryType.DROP,
+        serviceLevel: pickupTask.serviceLevel ?? deliveryServiceLevel(request.urgency),
+        deliveryRound: pickupTask.deliveryRound,
+        roundAt: now,
+        assignedArea: pickupTask.assignedArea,
+        assignedDeliveryPartnerId: deliveryPartner.id,
+        assignedDeliveryBoyId: deliveryPartner.id,
+        taskStatus: "delivered",
+        shift: pickupTask.shift,
+        distanceMeters: pickupTask.distanceMeters,
+        estimatedDistanceKm: pickupTask.estimatedDistanceKm,
+        estimatedEarnings,
+        estimatedPayout: estimatedEarnings,
+        pickupAddress: pickupTask.dropAddress,
+        dropAddress: pickupTask.pickupAddress,
+        pickupLocation: pickupTask.dropLocation,
+        dropLocation: pickupTask.pickupLocation,
+        customerName: pickupTask.customerName,
+        customerPhone: pickupTask.customerPhone,
+        tailorName: pickupTask.tailorName,
+        tailorPhone: pickupTask.tailorPhone,
+        clothType: pickupTask.clothType,
+        workType: pickupTask.workType,
+        itemCount: pickupTask.itemCount,
+        paymentMethod: "COD",
+        paymentStatus: "PAID",
+        totalAmount: Number(request.totalAmount ?? 0),
+        cashCollectionRequired: true,
+        cashCollected: true,
+        cashCollectedAt: now,
+        sampleProvided: pickupTask.sampleProvided,
+        sampleMedia: pickupTask.sampleMedia,
+        acceptedAt: pickupTask.acceptedAt ?? now,
+        pickedUpAt: now,
+        deliveredAt: now,
+        manualCompletionAt: now,
+        manualCompletionBy: req.user!.id,
+        manualCompletionNote: reconciliationNote
+      },
+      $push: { timelineEvents: { $each: finalTaskTimeline } }
+    },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  );
+
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
+    request.id,
+    {
+      $set: { workStatus: "READY", orderStatus: "completed", paymentStatus: "PAID", deliveryType: DeliveryType.DROP, deliveryPartnerId: deliveryPartner.id, assignedDeliveryBoyId: deliveryPartner.id, manualCompletionAt: now, manualCompletionBy: req.user!.id, manualCompletionNote: reconciliationNote },
+      $push: { timelineEvents: { $each: [
+        { status: "READY_FOR_DELIVERY", description: "Admin reconciliation: tailor work completed before the confirmed customer delivery.", timestamp: now, ...actor },
+        { status: "OUT_FOR_DELIVERY", description: "Admin reconciliation: Darji Delivery completed the final delivery.", timestamp: now, ...actor },
+        { status: "ORDER_DELIVERED", description: reconciliationNote, timestamp: now, ...actor }
+      ] } }
+    },
+    { returnDocument: "after" }
+  );
+  await PaymentModel.updateMany({ orderId: request.id, method: "COD" }, { $set: { status: "PAID", paidAt: now } });
+  const codTransaction = await TransactionModel.findOne({ orderId: request.id, category: "COD" }).lean();
+  if (!codTransaction) {
+    await TransactionModel.create({
+      userId: request.customerId,
+      entityType: "CUSTOMER",
+      type: "CREDIT",
+      category: "COD",
+      amount: Number(request.totalAmount ?? 0),
+      orderId: request.id,
+      note: "COD collected by Darji Delivery and manually reconciled by admin"
+    });
+  }
+  if (!updatedRequest) throw new AppError(404, "Tailoring request not found after reconciliation");
+
+  emitToAdmins("delivery:task_updated", finalTask?.toJSON());
+  emitToDeliveryPartner(deliveryPartner.id, "delivery:task_updated", finalTask?.toJSON());
+  emitToCustomer(request.customerId, "customer:delivery_status_updated", { taskId: finalTask?.id, orderId: request.id, tailoringRequestId: request.id, status: "completed", deliveryTask: finalTask?.toJSON(), manuallyReconciled: true });
+  emitToTailor(acceptedQuote.tailorId, "tailoring:delivery_status_updated", { taskId: finalTask?.id, orderId: request.id, status: "completed", deliveryTask: finalTask?.toJSON(), manuallyReconciled: true });
+  res.json({ data: await hydrateTailoringRequest(updatedRequest) });
+}
+
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
   const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";

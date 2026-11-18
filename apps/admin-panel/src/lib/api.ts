@@ -496,6 +496,11 @@ export async function updateAdminOrderPricing(payload: { orderId: string; quoteA
   return unwrap<{ id: string; quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; totalAmount: number }>(api.patch(`/admin/orders/${orderId}/pricing`, body));
 }
 
+export async function manuallyCompleteTailoringRequest(payload: { requestId: string; collectedAmount: number }) {
+  const { requestId, ...body } = payload;
+  return unwrap<TailoringRequest>(api.post(`/admin/tailoring-requests/${encodeURIComponent(requestId)}/manual-complete`, { ...body, confirmDelivered: true, confirmCodCollected: true }));
+}
+
 export type AdminAssignmentCandidate<T extends TailorProfile | DeliveryPartnerProfile> = {
   profile: T;
   distanceMeters: number | null;

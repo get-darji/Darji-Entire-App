@@ -941,6 +941,9 @@ const tailoringRequestSchema = new Schema(
     },
     workStatus: { type: String, enum: ["ACCEPTED", "WORKING", "READY"], default: "ACCEPTED", index: true },
     status: { type: String, enum: ["QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true },
+    manualCompletionAt: Date,
+    manualCompletionBy: String,
+    manualCompletionNote: String,
     timelineEvents: { type: [timelineEventSchema], default: [] },
     preferredMeasurementSlot: String
   },
@@ -1046,6 +1049,9 @@ const deliveryRequestSchema = new Schema(
     clothPhotos: [requestMediaSchema],
     samplePhotos: [requestMediaSchema],
     deliveryPhotos: [requestMediaSchema],
+    manualCompletionAt: Date,
+    manualCompletionBy: String,
+    manualCompletionNote: String,
     timelineEvents: { type: [timelineEventSchema], default: [] }
   },
   baseOptions
