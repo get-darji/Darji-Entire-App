@@ -642,8 +642,8 @@ function AuthPanel() {
   });
 
   return (
-    <main className="min-h-screen bg-[#fafbfc] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-[480px] bg-white border border-[#e6edf5] rounded-[2.5rem] p-8 sm:p-10 shadow-[0_24px_64px_rgba(8,17,31,0.06)]">
+    <main className="darji-dashboard-auth min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="darji-dashboard-auth-card w-full max-w-[480px] bg-white p-8 sm:p-10">
         <div className="mb-5 flex justify-end"><LanguageSwitcher /></div>
         {/* Centered Logo */}
         <div className="flex justify-center mb-6">
@@ -1024,12 +1024,15 @@ function ReferenceHomeScreen({ requests, coupons, draft, setDraft, setScreen, op
     if (workType) setDraft((current) => ({ ...current, workType, homeMeasurementBooked: workType === "New Stitching" || current.homeMeasurementBooked }));
     setScreen("newRequest");
   }
-  return <div className="grid gap-5">
+  return <div className="darji-home-layout grid">
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="grid gap-4">
-        <section className="reference-hero reference-card relative flex min-h-[310px] flex-col justify-center overflow-hidden p-7 sm:p-9">
+        <section className="darji-home-hero reference-card relative flex flex-col justify-center overflow-hidden p-7 sm:p-9">
+          <div className="darji-home-hero-photo" aria-hidden="true">
+            <img src={appAsset("home-services", "custom_stitching.jpg")} alt="" />
+          </div>
           <div className="relative z-10 max-w-[450px]">
-            <h1 className="text-4xl font-black leading-[1.08] tracking-[-.045em] sm:text-5xl">{uiText("Get Tailoring")}<br />{uiText("Done at Your Doorstep")}</h1>
+            <h1 className="darji-editorial-title">{uiText("Get Tailoring")}<br />{uiText("Done at Your Doorstep")}</h1>
             <p className="mt-4 max-w-[380px] text-sm leading-6 text-[#453a34]">{uiText("Alteration, repair, custom stitching and more — with trusted tailors, pickup and delivery at home.")}</p>
             <button onClick={() => setScreen(nextScreen)} className="reference-action reference-start-request mt-5">{uiText(hasDraft ? "Continue Request" : "Start Request")} <ArrowRight className="h-4 w-4" /></button>
           </div>
@@ -3802,25 +3805,71 @@ function GuestServices() {
   );
   if (signIn) return <AuthPanel />;
   return (
-    <main className="mx-auto min-h-screen w-full max-w-5xl px-6 py-10 text-[#08111f]">
-      <header className="flex items-center justify-between gap-4">
-        <Link href="/" aria-label="Darji home"><img src="/darji-loader-transparent.png" alt="Darji" className="h-12 w-auto" /></Link>
-        <Button onClick={() => setSignIn(true)}>Sign in</Button>
+    <main className="customer-order-web darji-guest min-h-screen">
+      <header className="darji-guest-header">
+        <div className="darji-guest-shell flex items-center justify-between gap-4">
+          <Link href="/" aria-label="Darji home"><img src="/darji-logo-cropped.png" alt="Darji" className="h-9 w-auto" /></Link>
+          <nav aria-label="Browse Darji" className="hidden items-center gap-7 text-sm font-semibold sm:flex">
+            <a href="#darji-services">Services</a>
+            <a href="#darji-how">How it works</a>
+          </nav>
+          <button type="button" className="reference-outline darji-guest-signin" onClick={() => setSignIn(true)}>Sign in <ArrowRight size={15} /></button>
+        </div>
       </header>
-      <section className="mt-12">
-        <h1 className="text-3xl font-black sm:text-4xl">Tailoring services at your doorstep</h1>
-        <p className="mt-3 max-w-xl text-slate-600">Choose a service, request a quote from a tailor, and book pickup and delivery. Your quote shows the price before you confirm.</p>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {SERVICE_CATEGORIES.map(({ label }) => (
-            <article key={label} className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h2 className="font-bold">{label}</h2>
-              <button type="button" className="mt-3 text-sm font-semibold text-orange-800 underline" onClick={() => setSignIn(true)}>Request a quote</button>
+      <section className="darji-guest-shell darji-guest-hero" aria-labelledby="darji-guest-title">
+        <div className="darji-guest-intro">
+          <p className="darji-editorial-kicker"><Scissors size={15} /> Doorstep tailoring</p>
+          <h1 id="darji-guest-title" className="darji-editorial-title">Tailoring services <em>at your doorstep.</em></h1>
+          <p className="darji-guest-copy">From a small repair to a custom fit, request a quote from a tailor and arrange pickup and delivery from home.</p>
+          <button type="button" className="reference-action reference-start-request darji-guest-cta" onClick={() => setSignIn(true)}>Request a quote <ArrowRight size={17} /></button>
+          <a href="#darji-services" className="darji-guest-browse">Browse services <ChevronDown size={15} /></a>
+        </div>
+        <div className="darji-guest-collage" aria-hidden="true">
+          <img className="darji-guest-photo-main" src="/editorial/hero-tailor.jpg" alt="" fetchPriority="high" />
+          <img className="darji-guest-photo-detail" src="/editorial/about-measurement.jpg" alt="" />
+        </div>
+      </section>
+      <div className="darji-guest-shell"><ReferenceTrustStrip /></div>
+      <section id="darji-services" className="darji-guest-shell darji-guest-section" aria-labelledby="darji-services-title">
+        <div className="darji-guest-section-heading">
+          <h2 id="darji-services-title" className="darji-editorial-title">Find the right service</h2>
+          <p>See your quote before you confirm.</p>
+        </div>
+        <div className="darji-guest-services">
+          {SERVICE_CATEGORIES.map(({ id, label, subtitle }, index) => {
+            const Icon = [Scissors, Ruler, Shirt, Sparkles, Package, CheckCircle2, MessageSquare][index] ?? Scissors;
+            return (
+              <article key={id} className="reference-card darji-guest-service">
+                <span className="darji-guest-service-icon"><Icon size={21} aria-hidden="true" /></span>
+                <h3>{label}</h3>
+                <p>{subtitle}</p>
+                <button type="button" className="darji-guest-service-action" onClick={() => setSignIn(true)} aria-label={`Request a quote for ${label}`}>Request a quote <ArrowRight size={15} /></button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section id="darji-how" className="darji-guest-shell darji-guest-section" aria-labelledby="darji-how-title">
+        <div className="darji-guest-section-heading">
+          <h2 id="darji-how-title" className="darji-editorial-title">How Darji works</h2>
+        </div>
+        <div className="darji-guest-steps">
+          {appHowItWorks.map((step) => (
+            <article key={step.title}>
+              <img src={step.image} alt="" loading="lazy" />
+              <h3>{step.title}</h3>
+              <p>{step.description}</p>
             </article>
           ))}
         </div>
       </section>
-      <footer className="mt-10 flex flex-wrap gap-5 text-sm text-slate-700">
-        <Link href="/about">About Darji</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+      <footer className="darji-guest-footer">
+        <div className="darji-guest-shell flex flex-wrap items-center justify-between gap-5">
+          <Link href="/" aria-label="Darji home"><img src="/darji-logo-cropped.png" alt="Darji" className="h-7 w-auto" /></Link>
+          <div className="flex flex-wrap gap-5 text-sm">
+            <Link href="/about">About Darji</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+          </div>
+        </div>
       </footer>
     </main>
   );
@@ -3971,7 +4020,7 @@ function CustomerDashboardContent() {
   if (initialLoading) return <LoadingScreen label={uiText("Loading your orders")} />;
 
   return (
-    <main lang={language} className="customer-order-web min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
+    <main lang={language} className="customer-order-web darji-dashboard min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
       <AppHeader screen={screen} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} syncing={syncing} pickup={draft.pickup} />
       <div className="shell py-6">
         {extraScreens.includes(screen as ExtraScreen) && screen !== "search" ? <CustomerExtraScreen screen={screen as ExtraScreen} go={(target) => setAppScreen(target as CustomerScreen)} orders={requestRows} coupons={couponRows} selectedOrder={selectedOrder} openOrder={openOrder} /> : null}
