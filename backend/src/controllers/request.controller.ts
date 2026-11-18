@@ -2481,10 +2481,6 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
   }).parse(req.body);
   const request = await TailoringRequestModel.findById(String(id));
   if (!request) throw new AppError(404, "Tailoring request not found");
-  if (String(request.orderStatus).toLowerCase() === "completed") {
-    res.json({ data: await hydrateTailoringRequest(request) });
-    return;
-  }
   if (request.status !== "TAILOR_SELECTED" || request.paymentMethod !== "COD") {
     throw new AppError(409, "Manual delivery reconciliation is only available for confirmed COD tailoring orders");
   }
@@ -2508,10 +2504,16 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
   const now = new Date();
   const actor = actorTimelineFields(req);
   const reconciliationNote = "Admin reconciliation: business owner confirmed delivery to the customer by Darji Delivery and collection of the COD amount.";
+  const pickupPayout = Number(pickupTask.finalPayout ?? pickupTask.estimatedPayout ?? pickupTask.estimatedEarnings ?? await deliveryTaskEstimatedEarnings(request, "customer_to_tailor"));
   const completedPickup = await DeliveryRequestModel.findOneAndUpdate(
     { _id: pickupTask.id, taskStatus: { $in: ["accepted", "picked_up", "delivered"] } },
     {
-      $set: { taskStatus: "delivered", pickedUpAt: pickupTask.pickedUpAt ?? now, deliveredAt: pickupTask.deliveredAt ?? now },
+      $set: {
+        taskStatus: "delivered",
+        pickedUpAt: pickupTask.pickedUpAt ?? now,
+        deliveredAt: pickupTask.deliveredAt ?? now,
+        ...(!pickupTask.batchId ? { finalPayout: pickupPayout, estimatedPayout: pickupTask.estimatedPayout ?? pickupPayout } : {})
+      },
       $push: { timelineEvents: { $each: [
         ...(pickupTask.taskStatus === "accepted" ? [{ status: "PICKED_UP", description: `Admin reconciliation: pickup completed by Darji Delivery. ${reconciliationNote}`, timestamp: now, ...actor }] : []),
         ...(pickupTask.taskStatus !== "delivered" ? [{ status: "DELIVERED", description: `Admin reconciliation: clothes delivered to tailor. ${reconciliationNote}`, timestamp: now, ...actor }] : [])
@@ -2520,10 +2522,22 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
     { returnDocument: "after" }
   );
   if (!completedPickup) throw new AppError(409, "The pickup task changed while reconciliation was in progress");
+  if (!pickupTask.batchId && pickupPayout > 0) {
+    await creditOrderEarning({
+      userId: deliveryPartner.userId,
+      userType: "DELIVERY_PARTNER",
+      orderId: completedPickup.id,
+      amount: pickupPayout,
+      remarks: `Delivery earning for ${completedPickup.taskId ?? completedPickup.id}; manually reconciled completed order`,
+      createdBy: "system"
+    });
+  }
 
   const tailor = await TailorModel.findById(acceptedQuote.tailorId);
   if (!tailor) throw new AppError(409, "The accepted tailor profile is unavailable");
   const estimatedEarnings = await deliveryTaskEstimatedEarnings(request, "tailor_to_customer");
+  const existingFinalTask = await DeliveryRequestModel.findOne({ orderId: request.id, type: "tailor_to_customer" });
+  const finalPayout = Number(existingFinalTask?.finalPayout ?? estimatedEarnings);
   const finalTaskTimeline = [
     { status: "TASK_CREATED", description: `Admin reconciliation: final delivery by Darji Delivery. ${reconciliationNote}`, timestamp: now, ...actor },
     { status: "ACCEPTED", description: "Final delivery completed by the assigned delivery partner.", timestamp: now, ...actor },
@@ -2550,6 +2564,7 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
         estimatedDistanceKm: pickupTask.estimatedDistanceKm,
         estimatedEarnings,
         estimatedPayout: estimatedEarnings,
+        finalPayout,
         pickupAddress: pickupTask.dropAddress,
         dropAddress: pickupTask.pickupAddress,
         pickupLocation: pickupTask.dropLocation,
@@ -2576,10 +2591,45 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
         manualCompletionBy: req.user!.id,
         manualCompletionNote: reconciliationNote
       },
-      $push: { timelineEvents: { $each: finalTaskTimeline } }
+      ...(existingFinalTask?.taskStatus === "delivered" ? {} : { $push: { timelineEvents: { $each: finalTaskTimeline } } })
     },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
+
+  if (finalTask && finalPayout > 0) {
+    await creditOrderEarning({
+      userId: deliveryPartner.userId,
+      userType: "DELIVERY_PARTNER",
+      orderId: finalTask.id,
+      amount: finalPayout,
+      remarks: `Delivery earning for ${finalTask.taskId ?? finalTask.id}; manually reconciled completed delivery`,
+      createdBy: "system"
+    });
+  }
+  if (Number(request.quoteAmount ?? acceptedQuote.price ?? 0) > 0) {
+    await creditOrderEarning({
+      userId: tailor.userId,
+      userType: "TAILOR",
+      orderId: request.id,
+      amount: Number(request.quoteAmount ?? acceptedQuote.price),
+      remarks: `Tailor earning for order ${request.id.slice(0, 8).toUpperCase()}; manually reconciled completed delivery`,
+      createdBy: "system"
+    });
+  }
+  const submittedMeasurementVisit = await MeasurementVisitModel.findOne({ requestId: request.id, status: "SUBMITTED" }).sort({ submittedAt: 1 });
+  if (submittedMeasurementVisit?.assignedTailorId && Number(submittedMeasurementVisit.visitPayout ?? 0) > 0) {
+    const measurementTailor = await TailorModel.findById(submittedMeasurementVisit.assignedTailorId).select("userId");
+    if (measurementTailor?.userId) {
+      await creditOrderEarning({
+        userId: measurementTailor.userId,
+        userType: "TAILOR",
+        orderId: submittedMeasurementVisit.id,
+        amount: Number(submittedMeasurementVisit.visitPayout),
+        remarks: `Measurement visit earning for order ${request.id.slice(0, 8).toUpperCase()}; manually reconciled completed delivery`,
+        createdBy: "system"
+      });
+    }
+  }
 
   const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
     request.id,
@@ -2608,6 +2658,8 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
   }
   if (!updatedRequest) throw new AppError(404, "Tailoring request not found after reconciliation");
 
+  emitToAdmins("delivery:task_updated", completedPickup.toJSON());
+  emitToDeliveryPartner(deliveryPartner.id, "delivery:task_updated", completedPickup.toJSON());
   emitToAdmins("delivery:task_updated", finalTask?.toJSON());
   emitToDeliveryPartner(deliveryPartner.id, "delivery:task_updated", finalTask?.toJSON());
   emitToCustomer(request.customerId, "customer:delivery_status_updated", { taskId: finalTask?.id, orderId: request.id, tailoringRequestId: request.id, status: "completed", deliveryTask: finalTask?.toJSON(), manuallyReconciled: true });

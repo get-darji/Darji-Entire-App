@@ -580,12 +580,16 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     const measurementRows = rows.filter((row) => row.category === "MEASUREMENT");
     const deliveryRows = rows.filter((row) => row.category === "DELIVERY");
     const request: any = tailoringRequestById.get(order.id);
-    const measurementRequired = Boolean(request?.homeMeasurementBooked || Number(request?.homeMeasurementFee ?? 0) > 0);
+    // A booked visit that was never submitted did not create a measurement payout.
+    // Only completed visits need a realized measurement-cost row before inclusion.
+    const measurementCostIncurred = measurementVisits.some((visit: any) =>
+      String(visit.requestId) === order.id && String(visit.status).toUpperCase() === "SUBMITTED"
+    );
     const activeTasks = deliveryRequests.filter((task: any) => String(task.orderId) === order.id && String(task.taskStatus) !== "cancelled");
     const missing: string[] = [];
     if (!paymentOrderIds.has(order.id)) missing.push("customer collection");
     if (!stitchingRows.length) missing.push("stitching cost");
-    if (measurementRequired && !measurementRows.length) missing.push("measurement cost");
+    if (measurementCostIncurred && !measurementRows.length) missing.push("measurement cost");
     if (!activeTasks.length || deliveryRows.length !== activeTasks.length) missing.push("finalized delivery cost");
     if (missing.length && !financeAdjustmentByOrderId.has(order.id)) {
       financeExceptions.push({ type: "INCOMPLETE_ORDER_FINANCE", orderId: order.id, message: `Excluded from realized revenue: missing ${missing.join(", ")}.` });

@@ -1263,7 +1263,7 @@ export function AdminPortal() {
     },
     onSuccess: async (_result, variables) => {
       setOrderDetail((current) => current?.id === variables.order.id ? { ...current, status: variables.status } : current);
-      toast.success("Order status updated");
+      toast.success(variables.status === "DELIVERED" && variables.order.request ? "Delivery reconciliation saved across linked records" : "Order status updated");
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -11535,10 +11535,11 @@ function OrderDetailDialog({
                   <div className="flex h-full flex-col gap-4">
                     <div>
                       <h4 className="text-lg font-semibold">Admin actions</h4>
-                      <p className="mt-1 text-sm text-[var(--muted)]">Use current backend endpoints for reassignment or status change.</p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">Use backend actions for assignment, status changes, and delivery reconciliation.</p>
                     </div>
                     <div className="mt-auto grid gap-2">
                       <ActionButton className="justify-start" variant="secondary" onClick={onAssign}><UserRoundPlus size={15} />Manage assignments</ActionButton>
+                      {order.request && order.status === "DELIVERED" ? <ActionButton className="w-full justify-center" variant="secondary" onClick={() => onStatusChange("DELIVERED")}><CheckCircle2 size={15} />Reconcile delivered order</ActionButton> : null}
                       <select className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
                         {[order.status, ...allowedOrderStatusTransitions(order.status), ...(order.request && order.status !== "DELIVERED" ? ["DELIVERED"] : [])].map((status) => (
                           <option key={status} value={status}>
@@ -11893,6 +11894,7 @@ function OrderPricingDialog({
   const isTailoring = Boolean(order?.request);
   const alreadyPaid = String(order?.paymentStatus ?? "").toUpperCase() === "PAID";
   const completed = ["DELIVERED", "COMPLETED", "CANCELLED"].includes(String(order?.status ?? "").toUpperCase());
+  const cancelled = String(order?.status ?? "").toUpperCase() === "CANCELLED";
 
   useEffect(() => {
     setQuoteAmount(String(order?.request?.quoteAmount ?? order?.subtotal ?? ""));
@@ -11906,6 +11908,9 @@ function OrderPricingDialog({
   const fields = [quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount];
   const valid = fields.every((value) => value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0);
   const recalculatedTotal = Math.max(0, Number(quoteAmount) + Number(deliveryFee) + Number(platformFee) + Number(smallOrderFee) + Number(homeMeasurementFee) - Number(discount || 0));
+  const settled = alreadyPaid || completed;
+  const settledTotal = Number(order?.totalAmount ?? 0);
+  const matchesSettledTotal = !cancelled && (!settled || (settledTotal > 0 && Math.abs(recalculatedTotal - settledTotal) < 0.01));
 
   return (
     <Dialog.Root onOpenChange={(next) => { if (!next) onClose(); }} open={open}>
@@ -11927,11 +11932,13 @@ function OrderPricingDialog({
               <div className="mt-2 flex justify-between gap-3"><span className="text-[var(--muted)]">Payment status</span><strong>{formatStatus(order.paymentStatus)}</strong></div>
               <p className="mt-3 text-xs text-[var(--muted)]">Total = quote/subtotal + delivery + platform + small-order + measurement − discount.</p>
             </div>
-            {alreadyPaid || completed ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Pricing is locked after payment or order completion.</p> : null}
+            {cancelled ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Pricing cannot be changed for a cancelled order.</p> : null}
+            {!cancelled && settled ? <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">This order is settled. You can correct the price breakdown while keeping the total at {formatCurrency(settledTotal)}. Payment records stay unchanged; a different total needs a separate collection or refund.</p> : null}
+            {settled && valid && !matchesSettledTotal ? <p className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-700">Adjust the components so the recalculated total matches the recorded settled amount.</p> : null}
           </div> : null}
           <div className="mt-6 flex justify-end gap-2">
             <ActionButton disabled={pending} variant="secondary" onClick={onClose}>Cancel</ActionButton>
-            <ActionButton disabled={!order || !valid || pending || alreadyPaid || completed} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
+            <ActionButton disabled={!order || !valid || !matchesSettledTotal || pending} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

@@ -4066,13 +4066,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const value = entity.value;
   const paymentStatus = String(value.paymentStatus ?? "PENDING").toUpperCase();
   const terminalStatuses = ["COMPLETED", "CANCELLED", "DELIVERED"];
-  if (["PAID", "REFUNDED"].includes(paymentStatus) || terminalStatuses.includes(String(value.orderStatus ?? "").toUpperCase()) || terminalStatuses.includes(String(value.status ?? "").toUpperCase())) {
-    throw new AppError(409, "Pricing cannot be changed after payment or order completion");
-  }
-  const payments = await PaymentModel.find({ orderId: String(value.id ?? value._id) }).select("status providerRef").lean();
-  if (payments.some((payment) => String(payment.status).toUpperCase() === "PAID")) {
-    throw new AppError(409, "Pricing cannot be changed after payment succeeds");
-  }
+  const payments = await PaymentModel.find({ orderId: String(value.id ?? value._id) }).select("status amount providerRef").lean();
   if (payments.some((payment) => String(payment.status).toUpperCase() === "PENDING" && payment.providerRef)) {
     throw new AppError(409, "Close or finish the active online payment link before changing pricing");
   }
@@ -4084,6 +4078,35 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const homeMeasurementFee = input.homeMeasurementFee ?? Number(value.homeMeasurementFee ?? 0);
   const discount = input.discount ?? Number(value.discountAmount ?? value.discount ?? 0);
   const totalAmount = Math.max(0, quoteAmount + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee - discount);
+  const isTerminal = terminalStatuses.includes(String(value.orderStatus ?? "").toUpperCase())
+    || terminalStatuses.includes(String(value.status ?? "").toUpperCase());
+  if ([String(value.orderStatus ?? ""), String(value.status ?? "")].some((status) => status.toUpperCase() === "CANCELLED")) {
+    throw new AppError(409, "Pricing cannot be changed for a cancelled order");
+  }
+  const paidPayments = payments.filter((payment) => String(payment.status).toUpperCase() === "PAID");
+  const paidAmount = paidPayments.reduce((sum, payment: any) => sum + Number(payment.amount ?? 0), 0);
+  const collectedCodTasks = await DeliveryRequestModel.find({
+    orderId: String(value.id ?? value._id),
+    paymentMethod: "COD",
+    cashCollectionRequired: true,
+    cashCollected: true
+  }).select("totalAmount").lean();
+  const confirmedCodAmount = collectedCodTasks.length
+    ? Number(collectedCodTasks[0].totalAmount ?? 0)
+    : 0;
+  const settledAmount = paidAmount > 0 ? paidAmount : confirmedCodAmount;
+  if (["REFUNDED"].includes(paymentStatus)) {
+    throw new AppError(409, "Pricing cannot be changed for a refunded order");
+  }
+  if (isTerminal && settledAmount <= 0) {
+    throw new AppError(409, "A completed order can only be repriced after its collected amount is reconciled");
+  }
+  if (settledAmount > 0 && Math.abs(totalAmount - settledAmount) > 0.01) {
+    throw new AppError(409, `The revised total must remain equal to the settled amount of ₹${settledAmount.toFixed(2)}. Payment collection records are not changed by price edits.`);
+  }
+  if (paymentStatus === "PAID" && settledAmount <= 0) {
+    throw new AppError(409, "Paid order has no matching successful payment or confirmed COD collection to reconcile against");
+  }
 
   if (entity.kind === "TAILORING_REQUEST") {
     const request = entity.document;
