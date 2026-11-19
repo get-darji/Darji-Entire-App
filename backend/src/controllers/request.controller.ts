@@ -2669,6 +2669,15 @@ export async function manuallyCompleteTailoringRequestController(req: Request, r
 
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
+  if (req.user!.role === "CUSTOMER" && req.get("x-darji-client")?.trim().toLowerCase() === "customer-web") {
+    const items = input.items ?? [input];
+    const missingMediaIndex = items.findIndex((item) =>
+      !item.media.some((file) => file.resourceType === "image" || file.resourceType === "video")
+    );
+    if (missingMediaIndex !== -1) {
+      throw new AppError(400, `Upload at least one photo or video for clothing item ${missingMediaIndex + 1}.`);
+    }
+  }
   const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const customerId = isAdmin && input.customerId ? input.customerId : req.user!.id;
   if (input.customerId && !isAdmin) throw new AppError(403, "Only an admin can create a request for another customer");

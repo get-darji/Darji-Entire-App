@@ -144,6 +144,11 @@ type MeasurementGuide = {
 const phoneSchema = z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a valid 10 digit phone number");
 const otpSchema = z.string().trim().regex(/^\d{6}$/, "Enter the 6 digit OTP");
 const MAX_MEDIA_FILES = 6;
+const CLOTHING_MEDIA_REQUIRED = "Upload at least one photo or video of the clothing item.";
+
+function hasClothingMedia(media: UploadedMedia[] = []) {
+  return media.some((file) => file.resourceType === "image" || file.resourceType === "video");
+}
 
 const flowSteps = [
   { id: "newRequest", label: "Details" },
@@ -1130,7 +1135,7 @@ function NewRequestStep({
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
   const uploadVersion = useRef(0);
   const uploadController = useRef<AbortController | null>(null);
-  const advanceAfterUpload = useRef(false);
+  const pendingUpload = useRef<Promise<boolean> | null>(null);
 
   useEffect(() => () => {
     uploadVersion.current += 1;
@@ -1141,37 +1146,39 @@ function NewRequestStep({
     uploadVersion.current += 1;
     uploadController.current?.abort();
     uploadController.current = null;
-    advanceAfterUpload.current = false;
+    pendingUpload.current = null;
     setUploadState("idle");
   }
 
   function startUpload(media: LocalMedia[]) {
     stopUpload();
-    if (!media.length) return;
+    if (!media.length) return Promise.resolve(false);
     const version = uploadVersion.current;
     const controller = new AbortController();
     uploadController.current = controller;
     setUploadError(undefined);
     setUploadState("uploading");
-    void customerApi.uploadMedia(media.map((item) => item.file), controller.signal).then((uploaded) => {
-      if (version !== uploadVersion.current) return;
-      uploadController.current = null;
+    const result = customerApi.uploadMedia(media.map((item) => item.file), controller.signal).then((uploaded) => {
+      if (version !== uploadVersion.current) return false;
+      if (!hasClothingMedia(uploaded)) throw new Error(CLOTHING_MEDIA_REQUIRED);
       setDraft((current) => current.media.map((item) => item.id).join() === media.map((item) => item.id).join()
         ? { ...current, media: [], uploadedMedia: uploaded }
         : current);
       media.forEach((item) => URL.revokeObjectURL(item.url));
       setUploadState("ready");
-      if (advanceAfterUpload.current) {
-        advanceAfterUpload.current = false;
-        setScreen("clothIssue");
-      }
+      return true;
     }).catch((error) => {
-      if (version !== uploadVersion.current) return;
-      uploadController.current = null;
-      advanceAfterUpload.current = false;
+      if (version !== uploadVersion.current) return false;
       setUploadState("idle");
       setUploadError(errorMessage(error));
+      return false;
+    }).finally(() => {
+      if (version !== uploadVersion.current) return;
+      uploadController.current = null;
+      pendingUpload.current = null;
     });
+    pendingUpload.current = result;
+    return result;
   }
 
   function selectMedia(media: LocalMedia[]) {
@@ -1210,8 +1217,15 @@ function NewRequestStep({
       setFormError("Add a pickup address before continuing.");
       return;
     }
+    if (!draft.media.length && !hasClothingMedia(draft.uploadedMedia)) {
+      setFormError(CLOTHING_MEDIA_REQUIRED);
+      return;
+    }
     try {
       setAvailabilityChecking(true);
+      const upload = draft.media.length ? pendingUpload.current ?? startUpload(draft.media) : null;
+      const version = uploadVersion.current;
+      if (upload && !await upload) return;
       const point = draft.pickupLocation ?? await customerApi.geocodeAddress(draft.pickup).then((result) => ({ lat: result.latitude, lng: result.longitude }));
       if (!point) throw new Error("Could not locate the pickup address. Add the city or state and try again.");
       const availability = await customerApi.serviceAvailability(point.lat, point.lng);
@@ -1220,23 +1234,13 @@ function NewRequestStep({
         return;
       }
       if (!draft.pickupLocation) setDraft((current) => ({ ...current, pickupLocation: point }));
+      if (version === uploadVersion.current) setScreen("clothIssue");
     } catch (error) {
       setFormError(errorMessage(error));
       return;
     } finally {
       setAvailabilityChecking(false);
     }
-    if (!draft.media.length) {
-      setScreen("clothIssue");
-      return;
-    }
-    if (uploadState === "uploading") {
-      advanceAfterUpload.current = true;
-      return;
-    }
-    advanceAfterUpload.current = true;
-    startUpload(draft.media);
-    advanceAfterUpload.current = true;
   }
 
   async function useCurrentLocation() {
@@ -1356,8 +1360,8 @@ function NewRequestStep({
             </div>
             <div className="reference-card order-4 p-5">
             <div className="flex flex-col gap-1.5 text-left mt-2">
-              <h3 className="reference-form-title">{uiText("4. Add Photos or Video (Optional)")}</h3>
-              <p className="reference-form-note">{uiText("Share the cloth, issue or design reference.")}</p>
+              <h3 className="reference-form-title">{uiText("4. Add Photos or Video (Required)")}</h3>
+              <p className="reference-form-note">{uiText(CLOTHING_MEDIA_REQUIRED)}</p>
             </div>
 
             <UploadBox
@@ -1367,16 +1371,20 @@ function NewRequestStep({
               uploaded={draft.uploadedMedia}
               onFiles={selectMedia}
               onRemoveLocal={removeLocalMedia}
-              onRemoveUploaded={(id) => setDraft((current) => ({ ...current, uploadedMedia: current.uploadedMedia.filter((item) => item.publicId !== id) }))}
+              onRemoveUploaded={(id) => {
+                stopUpload();
+                setDraft((current) => ({ ...current, uploadedMedia: current.uploadedMedia.filter((item) => item.publicId !== id) }));
+              }}
             />
-            {uploadState === "uploading" ? <p role="status" className="flex items-center gap-2 text-sm text-[var(--darji-muted)]"><Loader2 className="h-4 w-4 animate-spin" />{uiText(advanceAfterUpload.current ? "Uploading media, then continuing..." : "Uploading media...")}</p> : null}
+            {uploadState === "uploading" ? <p role="status" className="flex items-center gap-2 text-sm text-[var(--darji-muted)]"><Loader2 className="h-4 w-4 animate-spin" />{uiText("Uploading media...")}</p> : null}
+            {formError === CLOTHING_MEDIA_REQUIRED || uploadError ? <p role="alert" className="mt-2 text-sm font-bold text-[#b91c1c]">{uiText(uploadError ?? CLOTHING_MEDIA_REQUIRED)}</p> : null}
             </div>
-            {formError || uploadError ? <p role="alert" className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{uiText(formError ?? uploadError ?? "")}</p> : null}
+            {formError && formError !== CLOTHING_MEDIA_REQUIRED ? <p role="alert" className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{uiText(formError)}</p> : null}
             
             <div className="order-7 flex flex-col gap-3 sm:flex-row sm:justify-end mt-4">
               <button className="reference-outline" onClick={() => setScreen("home")}>{uiText("Save as Draft")}</button>
               <Button className="reference-action" disabled={availabilityChecking} onClick={() => void continueToIssue()}>
-                {uiText(availabilityChecking ? "Checking area..." : "Continue to Measurements")} <ChevronRight className="h-4 w-4" />
+                {uiText(availabilityChecking ? uploadState === "uploading" ? "Uploading media..." : "Checking area..." : "Continue to Measurements")} <ChevronRight className="h-4 w-4" />
               </Button>
               {draft.items.length ? <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)]" variant="secondary" onClick={() => setScreen("summary")}>{uiText("Back to Summary")}</Button> : null}
             </div>
@@ -1385,7 +1393,7 @@ function NewRequestStep({
         <aside className="grid content-start gap-4">
           <div className="reference-card overflow-hidden"><div className="reference-festive p-5"><span className="rounded-md bg-[#8e2d1c] px-2 py-1 text-xs font-black text-white">{uiText("STEP 1 OF 2")}</span><h2 className="mt-3 text-xl font-black">{uiText("Get Accurate Quotes")}</h2><p className="mt-1 max-w-56 text-xs">{uiText("Share the right details so tailors can give you a quick quote.")}</p></div></div>
           <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("What Information Helps Tailors?")}</h2><div className="reference-info-list mt-2">{[[Shirt,"Garment & Style","Mention the garment and fit you want."],[Ruler,"Measurements or Fit","Share sizes if you have them."],[Scissors,"Fabric Details","Tell us what material you have."],[Camera,"Reference Photos / Videos","Add images for a clearer quote."]].map(([Icon,title,detail]) => { const InfoIcon=Icon as LucideIcon; return <div key={title as string}><InfoIcon className="h-5 w-5" /><div><p className="text-sm font-bold">{uiText(title as string)}</p><p className="text-xs text-[#695d52]">{uiText(detail as string)}</p></div></div>; })}</div></div>
-          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Keep in Mind")}</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-xs text-[#594d43]"><li>{uiText("Clear details help tailors quote faster.")}</li><li>{uiText("Photos, video and voice notes are optional.")}</li><li>{uiText("You'll choose measurements and timing next.")}</li></ul></div>
+          <div className="reference-card p-5"><h2 className="reference-form-title">{uiText("Keep in Mind")}</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-xs text-[#594d43]"><li>{uiText("Clear details help tailors quote faster.")}</li><li>{uiText("A photo or video is required. Voice notes are optional.")}</li><li>{uiText("You'll choose measurements and timing next.")}</li></ul></div>
           <ReferenceTrustStrip />
         </aside>
       </div>
@@ -1412,6 +1420,10 @@ function ClothIssueStep({
 
   async function saveItem(action: SaveAction) {
     setFormError(undefined);
+    if (!hasClothingMedia(draft.uploadedMedia)) {
+      setFormError(CLOTHING_MEDIA_REQUIRED);
+      return;
+    }
     if (draft.homeMeasurementBooked && !draft.preferredMeasurementSlot) {
       setFormError("Select a measurement visit time slot");
       return;
@@ -1879,9 +1891,11 @@ function OrderSummaryStep({
 }) {
   const queryClient = useQueryClient();
   const items = clothingItemsForDraft(draft);
+  const missingMediaItem = items.find((item) => !hasClothingMedia(item.uploadedMedia));
   const createRequest = useMutation({
     mutationFn: async () => {
       if (!items.length) throw new Error("Add at least one clothing item.");
+      if (missingMediaItem) throw new Error(CLOTHING_MEDIA_REQUIRED);
       if (!draft.urgency || draft.pickup.trim().length < 8) throw new Error("Pickup address and urgency are required.");
       const incomplete = items.find((item) => item.description.trim().length < 10 && !item.voiceNotes?.length);
       if (incomplete) throw new Error(`${clothingItemTitle(incomplete)} needs instructions or a voice note.`);
@@ -1930,10 +1944,14 @@ function OrderSummaryStep({
               <Button className="h-12 px-6 rounded-2xl text-sm font-black border border-[#e6edf5] bg-white hover:bg-slate-50 text-[var(--darji-ink)] flex items-center justify-center gap-2" variant="secondary" onClick={() => { setDraft((current) => clearActiveClothingItem({ ...current, items })); setScreen("newRequest"); }}>
                 <Plus className="h-4 w-4 text-[var(--darji-orange)]" /> {uiText("Add Another Cloth")}
               </Button>
-              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" loading={createRequest.isPending} disabled={!items.length} onClick={() => createRequest.mutate()}>
+              <Button className="h-12 px-6 rounded-2xl text-sm font-black bg-[var(--darji-orange)] hover:bg-[#e56500] text-white flex items-center justify-center gap-2" loading={createRequest.isPending} disabled={!items.length || Boolean(missingMediaItem)} onClick={() => createRequest.mutate()}>
                 {uiText("Get Quotes")} <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+            {missingMediaItem ? <div className="rounded-2xl bg-[#fff1f2] p-4 text-sm text-[#b91c1c]">
+              <p>{uiText("Each clothing item needs an uploaded photo or video before you can get quotes.")}</p>
+              <button type="button" className="mt-2 font-bold underline" onClick={() => editItem(missingMediaItem)}>{uiText("Add photo or video")} · {clothingItemTitle(missingMediaItem)}</button>
+            </div> : null}
             {createRequest.error ? <p className="rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(createRequest.error)}</p> : null}
           </section>
           <aside className="grid content-start gap-4">
