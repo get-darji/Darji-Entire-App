@@ -3316,7 +3316,8 @@ export function AdminPortal() {
             onCreate={() => setCreateOrderOpen(true)}
             onDateChange={setOrderDateFilter}
             onDeliveryPartnerChange={setDeliveryPartnerFilter}
-            onExport={() => void downloadExcel("darji-orders.xlsx", "Orders", filteredOrders.map(orderToCsv))}
+            onExportCsv={() => downloadCsv("darji-orders.csv", filteredOrders.map(orderToCsv))}
+            onExportExcel={() => void downloadExcel("darji-orders.xlsx", "Orders", filteredOrders.map(orderToCsv))}
             onBulkPriority={(orders, priority) => {
               void Promise.all(orders.map((order) => updateAdminOrderMetadata({ orderId: order.id, priority }))).then(async (records) => {
                 setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) }));
@@ -3350,7 +3351,7 @@ export function AdminPortal() {
             <SectionIntro
               title="Tailoring request marketplace"
               description="Operate the complete quote-to-stitching lifecycle and move directly into the connected customer, tailor, payment, measurement, and delivery records."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-tailoring-requests.csv", filteredTailoring.map(tailoringToCsv))}>Export CSV</ActionButton>}
+              action={<ExportFormatActions label="Tailoring requests" filename="darji-tailoring-requests" rows={filteredTailoring.map(tailoringToCsv)} />}
             />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
               <OperationsMetricButton label="All requests" value={tailoringSummary.total} active={!tailoringStatusFilter && !tailoringWorkFilter && !tailoringAttentionOnly} onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter(""); setTailoringAttentionOnly(false); }} />
@@ -3368,7 +3369,7 @@ export function AdminPortal() {
               <button className={cn("rounded-xl border px-4 py-2 text-sm font-bold", tailoringAttentionOnly ? "border-rose-300 bg-rose-50 text-rose-700" : "border-[var(--panel-border)] bg-white text-[var(--muted)]")} onClick={() => setTailoringAttentionOnly((current) => !current)} type="button">Needs attention only</button>
               <button className="ml-auto rounded-xl px-4 py-2 text-sm font-bold text-[var(--muted)] hover:bg-slate-100" onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter(""); setTailoringUrgencyFilter(""); setTailoringAttentionOnly(false); }} type="button"><RotateCcw className="mr-2 inline" size={14} />Reset</button>
             </Panel>
-            {selectedTailoringIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedTailoringIds.length} request(s) selected</p><button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" onClick={() => downloadCsv("darji-selected-tailoring-requests.csv", tailoringRequests.filter((request) => selectedTailoringIds.includes(request.id)).map(tailoringToCsv))} type="button"><Download className="mr-2 inline" size={14} />Export selected</button>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedTailoringIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} requests marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}<button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedTailoringIds([])} type="button">Clear</button></Panel> : null}
+            {selectedTailoringIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedTailoringIds.length} request(s) selected</p><ExportFormatActions label="Selected tailoring requests" filename="darji-selected-tailoring-requests" rows={tailoringRequests.filter((request) => selectedTailoringIds.includes(request.id)).map(tailoringToCsv)} /><>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedTailoringIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} requests marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}</><button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedTailoringIds([])} type="button">Clear</button></Panel> : null}
             <DataTable columns={tailoringColumns} data={filteredTailoring} emptyMessage="No tailoring requests available." />
           </div>
         ) : null}
@@ -3378,7 +3379,7 @@ export function AdminPortal() {
             <SectionIntro
               title="Delivery operations"
               description="Operate individual pickup and final-delivery tasks while preserving OTP, proof-photo, COD, batch, retry, and payout safeguards."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-delivery-ops.csv", filteredDelivery.map(deliveryToCsv))}>Export CSV</ActionButton>}
+              action={<ExportFormatActions label="Delivery operations" filename="darji-delivery-ops" rows={filteredDelivery.map(deliveryToCsv)} />}
             />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
               <OperationsMetricButton label="All tasks" value={deliverySummary.total} active={!deliveryStatusFilter && !deliveryExceptionOnly} onClick={() => { setDeliveryStatusFilter(""); setDeliveryExceptionOnly(false); }} />
@@ -3396,7 +3397,7 @@ export function AdminPortal() {
               <button className={cn("rounded-xl border px-4 py-2 text-sm font-bold", deliveryExceptionOnly ? "border-rose-300 bg-rose-50 text-rose-700" : "border-[var(--panel-border)] bg-white text-[var(--muted)]")} onClick={() => setDeliveryExceptionOnly((current) => !current)} type="button">Exceptions only</button>
               <button className="ml-auto rounded-xl px-4 py-2 text-sm font-bold text-[var(--muted)] hover:bg-slate-100" onClick={() => { setDeliveryStatusFilter(""); setDeliveryTypeFilter(""); setDeliveryServiceFilter(""); setDeliveryExceptionOnly(false); }} type="button"><RotateCcw className="mr-2 inline" size={14} />Reset</button>
             </Panel>
-            {selectedDeliveryIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedDeliveryIds.length} task(s) selected</p><button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" onClick={() => downloadCsv("darji-selected-delivery-tasks.csv", deliveryRequests.filter((request) => selectedDeliveryIds.includes(request.id)).map(deliveryToCsv))} type="button"><Download className="mr-2 inline" size={14} />Export selected</button>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedDeliveryIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} tasks marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}<button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedDeliveryIds([])} type="button">Clear</button></Panel> : null}
+            {selectedDeliveryIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedDeliveryIds.length} task(s) selected</p><ExportFormatActions label="Selected delivery tasks" filename="darji-selected-delivery-tasks" rows={deliveryRequests.filter((request) => selectedDeliveryIds.includes(request.id)).map(deliveryToCsv)} /><>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedDeliveryIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} tasks marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}</><button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedDeliveryIds([])} type="button">Clear</button></Panel> : null}
             <PendingRetryOrdersPanel
               rows={retryDeliveryRows}
               pending={deliveryRetryMutation.isPending}
@@ -3445,7 +3446,7 @@ export function AdminPortal() {
               description="Only tailors who submitted verification are included. Pending, reviewed, and re-upload records remain visible."
               action={
                 <div className="flex items-center justify-end gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>
+                  <ExportFormatActions label="Tailors" filename="darji-tailors" rows={filteredTailors.map(tailorToCsv)} />
                 </div>
               }
             />
@@ -3495,7 +3496,7 @@ export function AdminPortal() {
               description="Only partners who submitted verification are included. The map and table use the same live five-second data refresh."
               action={
                 <div className="flex items-center justify-end gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>
+                  <ExportFormatActions label="Delivery partners" filename="darji-delivery-partners" rows={filteredPartners.map(partnerToCsv)} />
                 </div>
               }
             />
@@ -3531,7 +3532,7 @@ export function AdminPortal() {
               description="Every registered customer and every account with order activity appears here. Cross-role accounts remain managed in their dedicated section; deleted accounts are retained as archived order history."
               action={
                 <div className="flex items-center gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-customers.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
+                  <ExportFormatActions label="Customers" filename="darji-customers" rows={filteredUsers.map(userToCsv)} />
                 </div>
               }
             />
@@ -3588,9 +3589,7 @@ export function AdminPortal() {
                       { label: "Accrued", value: "ACCRUED" }
                     ]}
                   />
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-financial-ledger.csv", filteredFinancialLedger.map(financialLedgerToCsv))}>
-                    Export CSV
-                  </ActionButton>
+                  <ExportFormatActions label="Financial ledger" filename="darji-financial-ledger" rows={filteredFinancialLedger.map(financialLedgerToCsv)} />
                 </div>
               }
             />
@@ -6405,7 +6404,7 @@ function AnalyticsModule({ categoryBreakdown, dashboardAnalytics, orders, paymen
   const avgRating = reviews.length ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1) : "-";
   return (
     <div className="space-y-6">
-      <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-analytics.csv", [{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }])}>Export CSV</ActionButton>} />
+      <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ExportFormatActions label="Analytics" filename="darji-analytics" rows={[{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }]} />} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <FinanceStatCard label="Realized Net Revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note="Paid − stitching − measurement visits − delivery − packaging" tone="emerald" />
         <FinanceStatCard label="Orders" value={dashboardAnalytics.orders.total.toLocaleString("en-IN")} note="Created in selected period" tone="sky" />
@@ -6458,7 +6457,7 @@ function ActivityLogsModule({ loading, logs }: { loading: boolean; logs: AdminAc
   const categoryTone = (value?: AdminActivityLog["category"]) => value === "ACCESS" ? "sky" : value === "ORDERS" ? "amber" : value === "OPERATIONS" ? "violet" : value === "PEOPLE" ? "teal" : value === "FINANCE" ? "emerald" : value === "SUPPORT" ? "rose" : value === "CONFIGURATION" ? "cyan" : "slate";
   return (
     <div className="space-y-6">
-      <SectionIntro title="Activity Logs" description="Immutable records of successful admin actions. Request bodies and secrets are intentionally excluded." action={<div className="flex gap-2"><input aria-label="Search activity logs" className="h-10 min-w-[240px] rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 text-sm outline-none focus:border-[var(--accent)]" onChange={(event) => setSearch(event.target.value)} placeholder="Search admin, action or IP" value={search} /><ActionButton onClick={() => downloadCsv("darji-admin-activity.csv", rows.map((row) => ({ "Date and time": formatDate(row.createdAt, true), Category: row.category ?? "OTHER", Action: row.action ?? row.summary, Admin: row.actorName ?? row.actorRole, Phone: row.actorPhone ?? "", "Admin ID": row.actorId, Target: row.entityId ?? "", IP: row.ipAddress ?? "", Route: row.path }))) } variant="secondary">Export CSV</ActionButton></div>} />
+      <SectionIntro title="Activity Logs" description="Immutable records of successful admin actions. Request bodies and secrets are intentionally excluded." action={<div className="flex flex-wrap items-center gap-2"><input aria-label="Search activity logs" className="h-10 min-w-[240px] rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 text-sm outline-none focus:border-[var(--accent)]" onChange={(event) => setSearch(event.target.value)} placeholder="Search admin, action or IP" value={search} /><ExportFormatActions label="Admin activity" filename="darji-admin-activity" rows={rows.map((row) => ({ "Date and time": formatDate(row.createdAt, true), Category: row.category ?? "OTHER", Action: row.action ?? row.summary, Admin: row.actorName ?? row.actorRole, Phone: row.actorPhone ?? "", "Admin ID": row.actorId, Target: row.entityId ?? "", IP: row.ipAddress ?? "", Route: row.path }))} /></div>} />
       <div className="flex gap-2 overflow-x-auto pb-1">{categories.map((item) => <button className={cn("whitespace-nowrap rounded-full border px-3 py-2 text-sm font-semibold transition", category === item.value ? "border-[var(--deep)] bg-[var(--deep)] text-white" : "border-[var(--panel-border)] bg-[var(--panel)] text-[var(--muted)] hover:border-[var(--accent)]")} key={item.value} onClick={() => setCategory(item.value)} type="button">{item.label}</button>)}</div>
       <Panel>
         <div className="overflow-x-auto">
@@ -6537,7 +6536,8 @@ function OrdersManagementView({
   onCreate,
   onDateChange,
   onDeliveryPartnerChange,
-  onExport,
+  onExportCsv,
+  onExportExcel,
   onBulkPriority,
   onOpen,
   onPaymentMethodChange,
@@ -6568,7 +6568,8 @@ function OrdersManagementView({
   onCreate: () => void;
   onDateChange: (value: string) => void;
   onDeliveryPartnerChange: (value: string) => void;
-  onExport: () => void;
+  onExportCsv: () => void;
+  onExportExcel: () => void;
   onBulkPriority: (orders: Order[], priority: AdminOrderPriority) => void;
   onOpen: (order: Order, focus?: OrderDetailFocus) => void;
   onPaymentMethodChange: (value: string) => void;
@@ -6622,7 +6623,10 @@ function OrdersManagementView({
           <p className="mt-1.5 text-sm text-[var(--muted)]">Manage orders, assignments and deliveries from one place.</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <ActionButton className="min-h-11 rounded-xl px-5" variant="secondary" onClick={onExport}>
+          <ActionButton className="min-h-11 rounded-xl px-5" variant="secondary" onClick={onExportCsv}>
+            <Download size={16} /> Export CSV
+          </ActionButton>
+          <ActionButton className="min-h-11 rounded-xl px-5" variant="secondary" onClick={onExportExcel}>
             <Download size={16} /> Export Excel
           </ActionButton>
           <ActionButton className="min-h-11 rounded-xl bg-gradient-to-r from-[#ffad16] to-[#ff8500] px-5 text-white shadow-[0_10px_24px_rgba(255,145,0,0.2)]" onClick={onCreate}>
@@ -15885,6 +15889,13 @@ function exportRowMatches(row: Record<string, unknown>, filters: { search: strin
   const toExclusive = filters.toDate ? new Date(`${filters.toDate}T00:00:00`) : null;
   if (toExclusive) toExclusive.setDate(toExclusive.getDate() + 1);
   return (!from || value >= from) && (!toExclusive || value < toExclusive);
+}
+
+function ExportFormatActions({ label, filename, rows }: { label: string; filename: string; rows: Array<Record<string, unknown>> }) {
+  return <div className="flex flex-wrap gap-2">
+    <ActionButton variant="secondary" onClick={() => downloadCsv(`${filename}.csv`, rows)}>Export CSV</ActionButton>
+    <ActionButton variant="secondary" onClick={() => void downloadExcel(`${filename}.xlsx`, label, rows)}>Export Excel</ActionButton>
+  </div>;
 }
 
 function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
