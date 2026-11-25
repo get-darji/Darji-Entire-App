@@ -1457,6 +1457,12 @@ export async function updateOperationalAlertController(req: Request, res: Respon
   res.json({ data: alert });
 }
 
+export async function deleteOperationalAlertController(req: Request, res: Response) {
+  const alert = await OperationalAlertModel.findByIdAndDelete(String(req.params.id));
+  if (!alert) throw new AppError(404, "Operational alert not found");
+  res.json({ data: { id: String(alert.id) } });
+}
+
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery profile not found");

@@ -123,6 +123,7 @@ import {
   updateCoupon,
   deleteCoupon,
   deleteAdminAccount,
+  deleteOperationalAlert,
   extractError,
   getAnalytics,
   getCatalog,
@@ -1235,6 +1236,15 @@ export function AdminPortal() {
   const notificationReadMutation = useMutation({
     mutationFn: async (alertIds: string[]) => Promise.all(alertIds.map((alertId) => updateOperationalAlert({ alertId, status: "ACKNOWLEDGED" }))),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] }),
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const deleteOperationalAlertMutation = useMutation({
+    mutationFn: deleteOperationalAlert,
+    onSuccess: async () => {
+      toast.success("Alert deleted");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] });
+    },
     onError: (error) => toast.error(extractError(error))
   });
 
@@ -3289,6 +3299,12 @@ export function AdminPortal() {
           <LiveAlertsPage
             alerts={liveAlerts}
             onBack={() => setActiveSection("dashboard")}
+            onDelete={(alert) => {
+              if (!alert.operationalAlertId) return;
+              if (window.confirm("Permanently delete this operational alert? This cannot be undone.")) {
+                deleteOperationalAlertMutation.mutate(alert.operationalAlertId);
+              }
+            }}
           />
         ) : null}
 
@@ -5905,6 +5921,7 @@ function ReviewsManagementPanel({
 
 type AdminAlert = {
   id: string;
+  operationalAlertId?: string;
   title: string;
   detail: string;
   createdAt?: string;
@@ -5985,19 +6002,18 @@ function splitAlertDetail(detail: string) {
   return { description: `${match[2]}${match[3]}`, headline: match[1] };
 }
 
-function LiveAlertCard({ alert }: { alert: AdminAlert }) {
+function LiveAlertCard({ alert, onDelete }: { alert: AdminAlert; onDelete?: () => void }) {
   const Icon = getAlertIcon(alert);
   const detail = splitAlertDetail(alert.detail);
   const tone = alertToneStyles[alert.tone];
   return (
-    <button
+    <div
       className={cn(
-        "group relative flex min-h-[142px] items-center gap-3 overflow-hidden rounded-2xl border border-l-[5px] border-[var(--panel-border)] bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(15,23,42,0.035)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2",
+        "group relative flex min-h-[142px] items-center gap-3 overflow-hidden rounded-2xl border border-l-[5px] border-[var(--panel-border)] bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(15,23,42,0.035)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)]",
         tone.rail
       )}
-      onClick={alert.onOpen}
-      type="button"
     >
+      <button className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]" onClick={alert.onOpen} type="button">
       <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-full", tone.icon)}>
         <Icon className="h-6 w-6" strokeWidth={2.15} />
       </span>
@@ -6008,8 +6024,10 @@ function LiveAlertCard({ alert }: { alert: AdminAlert }) {
         {alert.createdAt ? <span className="mt-2 block text-xs font-medium text-slate-400">Raised {formatDate(alert.createdAt, true)}</span> : null}
         <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-orange-700">Open related record <ArrowRight size={13} /></span>
       </span>
-      <ChevronRight className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" />
-    </button>
+      {!onDelete ? <ChevronRight className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" /> : null}
+      </button>
+      {onDelete ? <button aria-label={`Delete alert: ${alert.title}`} className="z-10 rounded-lg p-2 text-rose-600 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" onClick={onDelete} title="Delete alert" type="button"><Trash2 size={17} /></button> : null}
+    </div>
   );
 }
 
@@ -6047,7 +6065,7 @@ function LiveAlertsWidget({ alerts, className, onViewAll }: { alerts: AdminAlert
   );
 }
 
-function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () => void }) {
+function LiveAlertsPage({ alerts, onBack, onDelete }: { alerts: AdminAlert[]; onBack: () => void; onDelete: (alert: AdminAlert) => void }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [severity, setSeverity] = useState("all");
@@ -6143,7 +6161,7 @@ function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () =
       </Panel>
       {filteredAlerts.length ? (
         <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-          {filteredAlerts.map((alert) => <LiveAlertCard key={alert.id} alert={alert} />)}
+          {filteredAlerts.map((alert) => <LiveAlertCard key={alert.id} alert={alert} onDelete={alert.operationalAlertId ? () => onDelete(alert) : undefined} />)}
         </div>
       ) : (
         <Panel className="p-8">
@@ -15132,6 +15150,7 @@ function buildLiveAlerts({
         createdAt: alert.createdAt ?? alert.updatedAt,
         detail: alert.message,
         id: `operational-${alert.id}`,
+        operationalAlertId: alert.id,
         onOpen: () => {
           if (relatedOrder) {
             setOrderDetail(relatedOrder);

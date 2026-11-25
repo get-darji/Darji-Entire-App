@@ -68,6 +68,7 @@ import {
   notifyDeliveryBatchController,
   listOperationalAlertsController,
   updateOperationalAlertController,
+  deleteOperationalAlertController,
   getOrderController,
   getDeliveryFareSettingsController,
   listAddressesController,
@@ -310,6 +311,7 @@ router.get("/admin/live-alert-email-gmail/status", requireAuth, requireRole("ADM
 router.get("/admin/live-alert-email-gmail/connect", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), startAdminLiveAlertGmailOAuthController);
 router.delete("/admin/live-alert-email-gmail", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), disconnectAdminLiveAlertGmailController);
 router.patch("/admin/operational-alerts/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateOperationalAlertController);
+router.delete("/admin/operational-alerts/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteOperationalAlertController);
 router.post("/admin/development/reset-orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetOrderRequestBatchDataController);
 router.post("/admin/development/reset-everything", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetEverythingDataController);
 
