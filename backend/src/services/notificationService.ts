@@ -67,6 +67,15 @@ export function sendPickupAssignedNotification(input: NotificationEventInput) {
   });
 }
 
+export function sendDeliveryUrgencyChangedNotification(input: NotificationEventInput) {
+  return sendEventNotification(input, {
+    channelId: "darji-incoming-orders-v4",
+    categoryId: "DELIVERY_PICKUP_REQUEST",
+    actions: ["Accept", "Reject", "View Details"],
+    targetApps: ["delivery"]
+  });
+}
+
 export function sendDeliveryBatchReadyNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "darji-incoming-orders-v4",

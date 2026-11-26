@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, DeliveryType, OrderModel, SettingModel, TailoringRequestModel, TailorModel, UserModel } from "../models.js";
 import { emitToCustomer, emitToDeliveryPartner } from "./socket.service.js";
 import { sendPushToUsers } from "./push.service.js";
-import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
-import { batchDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
+import { sendDeliveryBatchReadyNotification, sendDeliveryUrgencyChangedNotification } from "./notificationService.js";
+import { batchDeliveryPayout, instantDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
+import { emitDeliveryEvent } from "../delivery-events.js";
 import { FirstSolutionStrategy, LocalSearchMetaheuristic, RoutingIndexManager, RoutingModel, initRouting } from "or-tools-wasm/routing";
 import { upsertOperationalAlert } from "./operational-alert.service.js";
 import { DELIVERY_LOCATION_MAX_AGE_MS, hasFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "./delivery-location.service.js";
@@ -935,6 +936,66 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
     await notifyScheduledBatch(batch, now);
   }
   return batch;
+}
+
+export async function changeOrderDeliveryServiceLevel(orderId: string, level: DeliveryServiceLevel) {
+  const tasks = await DeliveryRequestModel.find({ orderId, taskStatus: { $ne: "cancelled" } });
+  if (!tasks.length) return { changedTasks: 0, notifiedPartners: 0 };
+  if (tasks.some((task) => task.taskStatus !== "pending" || task.assignedDeliveryPartnerId)) {
+    throw new Error("Delivery urgency cannot be changed after a delivery partner accepts the task");
+  }
+
+  const previousLevels = new Set(tasks.map((task) => String(task.serviceLevel ?? "STANDARD")));
+  if (tasks.some((task) => task.batchId)) {
+    const batchIds = [...new Set(tasks.map((task) => String(task.batchId ?? "")).filter(Boolean))];
+    for (const batchId of batchIds) {
+      await DeliveryBatchModel.updateOne({ batchId }, { $pull: { tasks: { $in: tasks.filter((task) => task.batchId === batchId).map((task) => task.id) } } });
+    }
+  }
+
+  const transitioned: any[] = [];
+  for (const task of tasks) {
+    const earnings = level === "INSTANT" ? instantDeliveryPayout(Number(task.distanceMeters ?? 0)) : Number(task.estimatedEarnings ?? 0);
+    await DeliveryRequestModel.findByIdAndUpdate(task.id, {
+      serviceLevel: level,
+      estimatedEarnings: earnings,
+      estimatedPayout: earnings,
+      ...(level === "INSTANT" ? { deliveryRound: "ONE_PM", roundAt: new Date() } : {}),
+      $unset: { batchId: 1, assignedDeliveryPartnerId: 1, assignedDeliveryBoyId: 1, acceptedAt: 1, notificationSentAt: 1, deadlineAt: 1, routePosition: 1, routeTotal: 1, etaWindowStart: 1, etaWindowEnd: 1 }
+    });
+    const updated = await DeliveryRequestModel.findById(task.id);
+    if (updated) transitioned.push(updated);
+  }
+
+  const oldBatchIds = [...new Set(tasks.map((task) => String(task.batchId ?? "")).filter(Boolean))];
+  await Promise.all(oldBatchIds.map((batchId) => recalculateBatchTotals(batchId)));
+
+  if (level !== "INSTANT") {
+    for (const task of transitioned) await addTaskToSilentBatch(task, level);
+    return { changedTasks: transitioned.length, notifiedPartners: 0 };
+  }
+
+  const changedFromBatchMode = [...previousLevels].some((previous) => previous === "STANDARD" || previous === "EXPRESS");
+  if (!changedFromBatchMode) return { changedTasks: transitioned.length, notifiedPartners: 0 };
+
+  const availablePartners = await DeliveryPartnerModel.find({ isAvailable: true, verificationStatus: "VERIFIED" }).select("_id userId");
+  for (const task of transitioned) {
+    const payload = task.toJSON();
+    emitDeliveryEvent({ type: "DELIVERY_REQUEST_CREATED", requestId: task.id });
+    for (const partner of availablePartners) emitToDeliveryPartner(String(partner.id), "delivery:task_created", payload);
+    const label = task.type === "customer_to_tailor" ? "Instant Pickup Request" : "Instant Drop Request";
+    await Promise.all(availablePartners.map((partner) => sendDeliveryUrgencyChangedNotification({
+      userId: partner.userId,
+      title: label,
+      body: `${task.clothType || "Order"}: ${task.pickupAddress} to ${task.dropAddress}. ${task.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${Number(task.estimatedEarnings ?? 0).toFixed(0)}.`,
+      data: { type: "INSTANT_DELIVERY_REQUEST", serviceLevel: "INSTANT", deliveryType: task.deliveryType, taskType: task.type, taskId: task.id, pickupId: task.id, orderId, requestKind: "SINGLE", clothType: task.clothType, workType: task.workType, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress, expectedEarnings: `Rs ${Number(task.estimatedEarnings ?? 0).toFixed(0)}`, screen: "pickupDetails" }
+    })));
+  }
+  await Promise.all([
+    OrderModel.findByIdAndUpdate(orderId, { $unset: { batchId: 1, deliveryRound: 1, assignedDeliveryBoyId: 1 } }),
+    TailoringRequestModel.findByIdAndUpdate(orderId, { $unset: { batchId: 1, deliveryRound: 1, assignedDeliveryBoyId: 1 } })
+  ]);
+  return { changedTasks: transitioned.length, notifiedPartners: availablePartners.length };
 }
 
 export async function moveTaskToScheduledBatch(taskId: string, slot: { deliveryRound: string; roundAt: Date; lockAt: Date }) {

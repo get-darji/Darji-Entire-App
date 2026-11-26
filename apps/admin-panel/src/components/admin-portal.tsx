@@ -1550,13 +1550,14 @@ export function AdminPortal() {
         ...current,
         subtotal: pricing.quoteAmount,
         deliveryFee: pricing.deliveryFee,
+        deliveryMode: pricing.deliveryMode,
         platformFee: pricing.platformFee,
         smallOrderFee: pricing.smallOrderFee,
         homeMeasurementFee: pricing.homeMeasurementFee,
         discount: pricing.discount,
         totalAmount: pricing.totalAmount,
         payments: current.payments?.map((payment) => pricing.collectedAmount !== undefined && payment.method === "COD" && payment.status === "PAID" ? { ...payment, amount: pricing.collectedAmount } : payment),
-        ...(current.request ? { request: { ...current.request, quoteAmount: pricing.quoteAmount, deliveryFee: pricing.deliveryFee, platformFee: pricing.platformFee, smallOrderFee: pricing.smallOrderFee, homeMeasurementFee: pricing.homeMeasurementFee, discountAmount: pricing.discount, totalAmount: pricing.totalAmount } } : {})
+        ...(current.request ? { request: { ...current.request, quoteAmount: pricing.quoteAmount, deliveryFee: pricing.deliveryFee, deliveryMode: pricing.deliveryMode, urgency: pricing.deliveryMode, platformFee: pricing.platformFee, smallOrderFee: pricing.smallOrderFee, homeMeasurementFee: pricing.homeMeasurementFee, discountAmount: pricing.discount, totalAmount: pricing.totalAmount } } : {})
       } : current);
       toast.success("Order pricing updated");
       await refreshData();
@@ -11906,10 +11907,11 @@ function OrderPricingDialog({
   order: Order | null;
   pending: boolean;
   onClose: () => void;
-  onSave: (values: { quoteAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; collectedAmount?: number; correctionReason?: string }) => void;
+  onSave: (values: { quoteAmount: number; deliveryFee: number; deliveryMode: "STANDARD" | "EXPRESS" | "INSTANT"; platformFee: number; smallOrderFee: number; homeMeasurementFee: number; discount: number; collectedAmount?: number; correctionReason?: string }) => void;
 }) {
   const [quoteAmount, setQuoteAmount] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState<"STANDARD" | "EXPRESS" | "INSTANT">("STANDARD");
   const [platformFee, setPlatformFee] = useState("");
   const [smallOrderFee, setSmallOrderFee] = useState("");
   const [homeMeasurementFee, setHomeMeasurementFee] = useState("");
@@ -11926,6 +11928,8 @@ function OrderPricingDialog({
   useEffect(() => {
     setQuoteAmount(String(order?.request?.quoteAmount ?? order?.subtotal ?? ""));
     setDeliveryFee(String(order?.deliveryFee ?? "0"));
+    const savedMode = String(order?.deliveryMode ?? order?.request?.deliveryMode ?? order?.request?.urgency ?? "STANDARD").toUpperCase();
+    setDeliveryMode(savedMode.includes("INSTANT") ? "INSTANT" : savedMode.includes("EXPRESS") || savedMode.includes("URGENT") ? "EXPRESS" : "STANDARD");
     setPlatformFee(String(order?.platformFee ?? order?.request?.platformFee ?? "0"));
     setSmallOrderFee(String(order?.smallOrderFee ?? order?.request?.smallOrderFee ?? "0"));
     setHomeMeasurementFee(String(order?.homeMeasurementFee ?? order?.request?.homeMeasurementFee ?? "0"));
@@ -11955,6 +11959,19 @@ function OrderPricingDialog({
             <Field label={isTailoring ? "Tailor quote (₹)" : "Order subtotal (₹)"}>
               <input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" min="0" step="0.01" type="number" value={quoteAmount} onChange={(event) => setQuoteAmount(event.target.value)} />
             </Field>
+            <Field label="Delivery urgency">
+              <select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 disabled:bg-slate-100 disabled:text-slate-500" disabled={settled || cancelled || refunded} value={deliveryMode} onChange={(event) => {
+                const nextMode = event.target.value as "STANDARD" | "EXPRESS" | "INSTANT";
+                setDeliveryMode(nextMode);
+                setDeliveryFee(String(({ STANDARD: 129, EXPRESS: 179, INSTANT: 199 } as const)[nextMode]));
+              }}>
+                <option value="STANDARD">Standard · ₹129</option>
+                <option value="EXPRESS">Express · ₹179</option>
+                <option value="INSTANT">Instant · ₹199</option>
+              </select>
+              {settled || cancelled || refunded ? <p className="mt-1 text-xs text-[var(--muted)]">Delivery urgency is locked after settlement or order completion.</p> : null}
+              <p className="mt-1 text-xs text-[var(--muted)]">Changing to Instant sends the normal incoming delivery request to available delivery partners when tasks are still pending.</p>
+            </Field>
             <Field label="Delivery charge (₹)">
               <input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" min="0" step="0.01" type="number" value={deliveryFee} onChange={(event) => setDeliveryFee(event.target.value)} />
             </Field>
@@ -11973,7 +11990,7 @@ function OrderPricingDialog({
           </div> : null}
           <div className="mt-6 flex justify-end gap-2">
             <ActionButton disabled={pending} variant="secondary" onClick={onClose}>Cancel</ActionButton>
-            <ActionButton disabled={!order || !valid || !canSave || pending} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount), ...(canCorrectCash ? { collectedAmount: Number(collectedAmount), correctionReason: correctionReason.trim() } : {}) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
+            <ActionButton disabled={!order || !valid || !canSave || pending} onClick={() => onSave({ quoteAmount: Number(quoteAmount), deliveryFee: Number(deliveryFee), deliveryMode, platformFee: Number(platformFee), smallOrderFee: Number(smallOrderFee), homeMeasurementFee: Number(homeMeasurementFee), discount: Number(discount), ...(canCorrectCash ? { collectedAmount: Number(collectedAmount), correctionReason: correctionReason.trim() } : {}) })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={16} />}Save pricing</ActionButton>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

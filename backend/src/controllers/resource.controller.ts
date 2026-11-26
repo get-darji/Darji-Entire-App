@@ -75,7 +75,8 @@ import { OPERATIONAL_ALLOWANCE_PER_ORDER, allocateAmountExactly, paymentDedupeKe
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
 import { couponsVisibleToCustomer } from "../services/coupon.service.js";
 import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
-import { extractTailorPoint, geocodeAddress, pointFrom, roadDistanceMatrix, type LatLng } from "../services/delivery-pricing.service.js";
+import { customerDeliveryCharge, extractTailorPoint, geocodeAddress, pointFrom, roadDistanceMatrix, type DeliveryMode, type LatLng } from "../services/delivery-pricing.service.js";
+import { changeOrderDeliveryServiceLevel } from "../services/hybrid-delivery.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -4064,6 +4065,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   const input = z.object({
     quoteAmount: z.coerce.number().finite().min(0).max(1_000_000).optional(),
     deliveryFee: z.coerce.number().finite().min(0).max(100_000).optional(),
+    deliveryMode: z.enum(["STANDARD", "EXPRESS", "INSTANT"]).optional(),
     platformFee: z.coerce.number().finite().min(0).max(100_000).optional(),
     smallOrderFee: z.coerce.number().finite().min(0).max(100_000).optional(),
     homeMeasurementFee: z.coerce.number().finite().min(0).max(100_000).optional(),
@@ -4081,7 +4083,10 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
   }
 
   const quoteAmount = input.quoteAmount ?? Number(value.quoteAmount ?? value.subtotal ?? 0);
-  const deliveryFee = input.deliveryFee ?? Number(value.deliveryFee ?? 0);
+  const deliveryMode = input.deliveryMode ?? String(value.deliveryMode ?? "STANDARD").toUpperCase() as DeliveryMode;
+  const deliveryFee = input.deliveryMode
+    ? input.deliveryFee ?? customerDeliveryCharge(deliveryMode, Number(value.customerToTailorDistanceMeters ?? 0)).deliveryFee
+    : input.deliveryFee ?? Number(value.deliveryFee ?? 0);
   const platformFee = input.platformFee ?? Number(value.platformFee ?? getPlatformFee(quoteAmount));
   const smallOrderFee = input.smallOrderFee ?? Number(value.smallOrderFee ?? getSmallOrderFee(quoteAmount));
   const homeMeasurementFee = input.homeMeasurementFee ?? Number(value.homeMeasurementFee ?? 0);
@@ -4147,7 +4152,7 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
       await session.endSession();
     }
     emitToAdmins("order:updated", { orderId });
-    return res.json({ data: { id: orderId, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount, collectedAmount } });
+    return res.json({ data: { id: orderId, quoteAmount, deliveryFee, deliveryMode, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount, collectedAmount } });
   }
   if (isTerminal && settledAmount <= 0) {
     throw new AppError(409, "A completed order can only be repriced after its collected amount is reconciled");
@@ -4159,33 +4164,48 @@ export async function updateAdminOrderPricingController(req: Request, res: Respo
     throw new AppError(409, "Paid order has no matching successful payment or confirmed COD collection to reconcile against");
   }
 
+  if (input.deliveryMode && input.deliveryMode !== String(value.deliveryMode ?? "STANDARD").toUpperCase()) {
+    try {
+      await changeOrderDeliveryServiceLevel(orderId, input.deliveryMode);
+    } catch (error) {
+      throw new AppError(409, error instanceof Error ? error.message : "Delivery urgency could not be changed");
+    }
+  }
+
   if (entity.kind === "TAILORING_REQUEST") {
     const request = entity.document;
     request.quoteAmount = quoteAmount;
     request.deliveryFee = deliveryFee;
+    if (input.deliveryMode) {
+      request.deliveryMode = deliveryMode;
+      request.urgency = deliveryMode;
+    }
     request.platformFee = platformFee;
     request.smallOrderFee = smallOrderFee;
     request.homeMeasurementFee = homeMeasurementFee;
     request.discountAmount = discount;
     request.totalAmount = totalAmount;
     await request.save();
+    await DeliveryRequestModel.updateMany({ orderId: request.id, taskStatus: { $ne: "cancelled" } }, { $set: { totalAmount } });
     if (request.selectedQuoteId) {
       await TailorQuoteModel.updateOne({ _id: request.selectedQuoteId, requestId: request.id }, { $set: { price: quoteAmount } });
     }
     await PaymentModel.updateMany({ orderId: request.id, status: "PENDING", providerRef: { $exists: false } }, { $set: { amount: totalAmount } });
-    return res.json({ data: { id: request.id, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
+    return res.json({ data: { id: request.id, quoteAmount, deliveryFee, deliveryMode, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
   }
 
   const order = entity.document;
   order.subtotal = quoteAmount;
   order.deliveryFee = deliveryFee;
+  if (input.deliveryMode) order.deliveryMode = deliveryMode;
   order.platformFee = platformFee;
   order.smallOrderFee = smallOrderFee;
   order.discount = discount;
   order.totalAmount = totalAmount;
   await order.save();
+  await DeliveryRequestModel.updateMany({ orderId: order.id, taskStatus: { $ne: "cancelled" } }, { $set: { totalAmount } });
   await PaymentModel.updateMany({ orderId: order.id, status: "PENDING", providerRef: { $exists: false } }, { $set: { amount: totalAmount } });
-  return res.json({ data: { id: order.id, quoteAmount, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
+  return res.json({ data: { id: order.id, quoteAmount, deliveryFee, deliveryMode, platformFee, smallOrderFee, homeMeasurementFee, discount, totalAmount } });
 }
 
 function addressText(address?: Record<string, any> | null) {
